@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  email     String   @unique
+  name      String?
+  role      String   @default("user")
+  projects  Project[]
+  orders    Order[]
+  assets    Asset[]  @relation("UserAssets")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Style {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  name            String   @unique
+  prompt          String
+  negativePrompt  String?
+  examples        String[]
+  sdModel         String
+  cfgScale        Float    @default(7)
+  steps           Int      @default(30)
+  parameters      Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  projects        Project[]
+}
+
+model Project {
+  id             String          @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String          @db.ObjectId
+  user           User            @relation(fields: [userId], references: [id])
+  title          String
+  inputImageUrl  String
+  styleId        String?         @db.ObjectId
+  style          Style?          @relation(fields: [styleId], references: [id])
+  promptText     String
+  status         ProjectStatus   @default(DRAFT)
+  outputs        ProjectOutput[]
+  orders         Order[]         @relation("ProjectOrders")
+  jobs           Job[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+enum ProjectStatus {
+  DRAFT
+  GENERATING
+  READY
+  FAILED
+}
+
+model ProjectOutput {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  projectId String   @db.ObjectId
+  project   Project  @relation(fields: [projectId], references: [id])
+  url       String
+  metadata  Json
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id               String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String        @db.ObjectId
+  user             User          @relation(fields: [userId], references: [id])
+  projectId        String        @db.ObjectId
+  project          Project       @relation("ProjectOrders", fields: [projectId], references: [id])
+  provider         Provider
+  providerOrderId  String?
+  product          Json
+  price            Float
+  currency         String
+  stripeSessionId  String        @unique
+  status           OrderStatus   @default(CREATED)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+enum Provider {
+  PRINTFUL
+  PRINTIFY
+}
+
+enum OrderStatus {
+  CREATED
+  PAID
+  SENT
+  FULFILLED
+  FAILED
+}
+
+model Job {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  type      JobType
+  status    JobStatus @default(PENDING)
+  payload   Json
+  result    Json?
+  projectId String?   @db.ObjectId
+  project   Project?  @relation(fields: [projectId], references: [id])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+enum JobType {
+  GENERATION
+  MOCKUP
+  FULFILLMENT
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+model Asset {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  ownerId      String   @db.ObjectId
+  owner        User     @relation("UserAssets", fields: [ownerId], references: [id])
+  type         AssetType
+  s3Key        String
+  url          String
+  width        Int
+  height       Int
+  dpi          Int
+  colorProfile String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+}
+
+enum AssetType {
+  INPUT
+  OUTPUT
+  MOCKUP
+}

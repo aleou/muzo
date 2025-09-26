@@ -1,0 +1,23 @@
+{
+  "name": "muzo",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@8.15.4",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "prepare": "husky install"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.5.0",
+    "@types/node": "^20.11.30",
+    "eslint": "^8.57.0",
+    "globals": "^15.3.0",
+    "husky": "^9.0.10",
+    "prettier": "^3.2.5",
+    "turbo": "^1.12.4",
+    "typescript": "^5.4.5"
+  }
+}

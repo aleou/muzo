@@ -1,0 +1,14 @@
+{
+  "name": "@muzo/ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "axios": "^1.6.8",
+    "zod": "^3.23.8"
+  }
+}

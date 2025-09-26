@@ -1,0 +1,26 @@
+{
+  "": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "NodeNext",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "strict": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@muzo/db": ["packages/db/src"],
+      "@muzo/queue": ["packages/queue/src"],
+      "@muzo/fulfillment": ["packages/fulfillment/src"],
+      "@muzo/ai": ["packages/ai/src"]
+    },
+    "types": ["node"]
+  },
+  "include": ["packages", "apps", "scripts"],
+  "exclude": ["node_modules", "dist", "build"]
+}

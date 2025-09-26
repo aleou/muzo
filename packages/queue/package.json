@@ -1,0 +1,14 @@
+{
+  "name": "@muzo/queue",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint ./src",
+    "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "bullmq": "^4.15.0",
+    "zod": "^3.23.8"
+  }
+}

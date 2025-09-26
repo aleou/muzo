@@ -1,0 +1,12 @@
+{
+  "": "https://json.schemastore.org/tsconfig",
+  "files": [],
+  "references": [
+    { "path": "./apps/web" },
+    { "path": "./apps/worker" },
+    { "path": "./packages/db" },
+    { "path": "./packages/queue" },
+    { "path": "./packages/fulfillment" },
+    { "path": "./packages/ai" }
+  ]
+}

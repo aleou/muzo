@@ -3,7 +3,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "NodeNext",
+    "moduleResolution": "Bundler",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
@@ -14,10 +14,14 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@muzo/db": ["packages/db/src"],
-      "@muzo/queue": ["packages/queue/src"],
-      "@muzo/fulfillment": ["packages/fulfillment/src"],
-      "@muzo/ai": ["packages/ai/src"]
+      "@muzo/db": ["packages/db/src/index.ts"],
+      "@muzo/db/*": ["packages/db/src/*"],
+      "@muzo/queue": ["packages/queue/src/index.ts"],
+      "@muzo/queue/*": ["packages/queue/src/*"],
+      "@muzo/fulfillment": ["packages/fulfillment/src/index.ts"],
+      "@muzo/fulfillment/*": ["packages/fulfillment/src/*"],
+      "@muzo/ai": ["packages/ai/src/index.ts"],
+      "@muzo/ai/*": ["packages/ai/src/*"]
     },
     "types": ["node"]
   },

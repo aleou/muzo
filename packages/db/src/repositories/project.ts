@@ -1,6 +1,6 @@
-import { ProjectStatus } from '@prisma/client';
+﻿import { ProjectStatus } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
-import { prisma } from '../prisma-client.js';
+import { prisma } from '../prisma-client';
 
 export function createProject(data: Prisma.ProjectCreateInput) {
   return prisma.project.create({ data });
@@ -56,3 +56,5 @@ export async function upsertGenerationResult(result: {
     },
   });
 }
+
+

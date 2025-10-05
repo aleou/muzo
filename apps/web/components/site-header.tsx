@@ -1,4 +1,5 @@
 ﻿import Link from 'next/link';
+import { auth, signOut } from '@/auth';
 import { Button } from '@/components/ui/button';
 
 const navItems = [
@@ -8,7 +9,15 @@ const navItems = [
   { label: 'Tarifs', href: '#pricing' },
 ];
 
-export function SiteHeader() {
+export async function SiteHeader() {
+  const session = await auth();
+  const isAuthenticated = Boolean(session?.user);
+
+  async function handleSignOut() {
+    'use server';
+    await signOut({ redirectTo: '/' });
+  }
+
   return (
     <header className="flex items-center justify-between border-b border-slate-800/60 pb-6">
       <Link href="/" className="flex items-center gap-2 text-lg font-semibold text-slate-100">
@@ -23,12 +32,24 @@ export function SiteHeader() {
         ))}
       </nav>
       <div className="flex items-center gap-3">
-        <Button variant="ghost" href="/dashboard" className="hidden md:inline-flex">
-          Mes commandes
-        </Button>
+        {isAuthenticated ? (
+          <Button variant="ghost" href="/dashboard" className="hidden md:inline-flex">
+            Mes commandes
+          </Button>
+        ) : (
+          <Button variant="ghost" href="/auth/sign-in" className="hidden md:inline-flex">
+            Se connecter
+          </Button>
+        )}
         <Button href="/studio">Creer un produit</Button>
+        {isAuthenticated ? (
+          <form action={handleSignOut}>
+            <Button type="submit" variant="secondary">
+              Se deconnecter
+            </Button>
+          </form>
+        ) : null}
       </div>
     </header>
   );
 }
-

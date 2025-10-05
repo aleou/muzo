@@ -6,7 +6,7 @@ const TESTIMONIALS = [
     name: 'Clara, maman de deux enfants',
     role: 'Puzzle personnalise',
     quote:
-      "J'ai transforme une photo de vacances en puzzle pour l'anniversaire de mon fils. Commande realisee en 5 minutes, livraison rapide et rendu magnifique.",
+      "J&apos;ai transforme une photo de vacances en puzzle pour l'anniversaire de mon fils. Commande realisee en 5 minutes, livraison rapide et rendu magnifique.",
   },
   {
     name: 'Omar, photographe amateur',
@@ -28,7 +28,7 @@ export function TestimonialsSection() {
       <div className="grid gap-6 md:grid-cols-2">
         {TESTIMONIALS.map((testimonial) => (
           <Card key={testimonial.name} className="flex h-full flex-col justify-between gap-6">
-            <p className="text-lg text-slate-200">"{testimonial.quote}"</p>
+            <p className="text-lg text-slate-200">&ldquo;{testimonial.quote}&rdquo;</p>
             <div className="text-sm text-slate-400">
               <p className="font-semibold text-slate-200">{testimonial.name}</p>
               <p>{testimonial.role}</p>
@@ -39,3 +39,5 @@ export function TestimonialsSection() {
     </section>
   );
 }
+
+

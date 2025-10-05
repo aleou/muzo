@@ -1,7 +1,9 @@
-import { getFirstUser, getUserById, listOrdersByUser, listProjectsByUser } from '@muzo/db';
+﻿import { getUserById } from '@muzo/db/repositories/user';
+import { listOrdersByUser } from '@muzo/db/repositories/order';
+import { listProjectsByUser } from '@muzo/db/repositories/project';
 
-export async function getDashboardData(userId?: string) {
-  const userRecord = userId ? await getUserById(userId) : await getFirstUser();
+export async function getDashboardData(userId: string) {
+  const userRecord = await getUserById(userId);
 
   if (!userRecord) {
     return {
@@ -22,3 +24,5 @@ export async function getDashboardData(userId?: string) {
     orders,
   } as const;
 }
+
+

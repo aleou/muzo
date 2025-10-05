@@ -1,4 +1,4 @@
-import { prisma } from '../prisma-client.js';
+﻿import { prisma } from '../prisma-client';
 import type { Prisma } from '@prisma/client';
 
 export function listStyles() {
@@ -16,3 +16,5 @@ export function seedStyles(styles: Prisma.StyleCreateInput[]) {
     ),
   );
 }
+
+

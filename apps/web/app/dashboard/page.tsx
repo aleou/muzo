@@ -1,5 +1,7 @@
-import Image from 'next/image';
+﻿import Image from 'next/image';
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
+import { auth } from '@/auth';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -58,21 +60,23 @@ function getStatusTone(status: string) {
   }
 }
 
-export default async function DashboardPage({
-  searchParams,
-}: {
-  searchParams?: { userId?: string };
-}) {
-  const data = await getDashboardData(searchParams?.userId);
+export default async function DashboardPage() {
+  const session = await auth();
+
+  if (!session?.user?.id) {
+    redirect('/auth/sign-in');
+  }
+
+  const data = await getDashboardData(session.user.id);
   const { user, projects, orders } = data;
 
   if (!user) {
     return (
       <main className="flex flex-1 flex-col gap-6">
         <Card className="border-dashed border-violet-500/40 bg-slate-900/40 text-center">
-          <CardTitle>Aucun utilisateur trouve</CardTitle>
+          <CardTitle>Profil introuvable</CardTitle>
           <CardDescription>
-            Ajoutez un compte utilisateur via Prisma ou votre seed, puis rechargez cette page pour afficher vos projets.
+            Votre compte n&apos;est pas encore configure. Contactez le support MUZO pour finaliser votre acces.
           </CardDescription>
           <Button className="mt-6" href="/studio">
             Ouvrir le studio
@@ -85,17 +89,24 @@ export default async function DashboardPage({
   type ProjectWithOutputs = (typeof projects)[number];
   type ProjectOutputWithMeta = ProjectWithOutputs['outputs'][number];
   type OrderWithProject = (typeof orders)[number];
-
-  const totalOutputs = projects.reduce<number>((total, project) => total + project.outputs.length, 0);
-  const totalRevenue = orders.reduce<number>((total, order) => total + (order.price ?? 0), 0);
-
-  const latestOutputs: Array<{
+  type ProjectGalleryItem = {
     id: string;
     url: string;
     createdAt: Date;
     projectTitle: string;
-  }> = projects
-    .flatMap((project: ProjectWithOutputs) =>
+  };
+
+  const totalOutputs = projects.reduce(
+    (total: number, project: ProjectWithOutputs) => total + project.outputs.length,
+    0,
+  );
+  const totalRevenue = orders.reduce(
+    (total: number, order: OrderWithProject) => total + (order.price ?? 0),
+    0,
+  );
+
+  const latestOutputs: ProjectGalleryItem[] = projects
+    .flatMap<ProjectGalleryItem>((project: ProjectWithOutputs) =>
       project.outputs.map((output: ProjectOutputWithMeta) => ({
         id: output.id,
         url: output.url,
@@ -103,7 +114,7 @@ export default async function DashboardPage({
         projectTitle: project.title,
       })),
     )
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .sort((a: ProjectGalleryItem, b: ProjectGalleryItem) => b.createdAt.getTime() - a.createdAt.getTime())
     .slice(0, 6);
 
   const latestOrders = orders.slice(0, 5) as OrderWithProject[];
@@ -123,7 +134,7 @@ export default async function DashboardPage({
         <div className="flex flex-wrap gap-3">
           <Button href="/studio">Nouvelle creation</Button>
           <Button variant="secondary" href="/">
-            Retour a l'accueil
+            Retour a l&apos;accueil
           </Button>
         </div>
       </header>
@@ -140,7 +151,7 @@ export default async function DashboardPage({
           <CardDescription>Resume de vos commandes passes et en cours.</CardDescription>
         </Card>
         <Card>
-          <CardTitle>Chiffre d'affaires</CardTitle>
+          <CardTitle>Chiffre d&apos;affaires</CardTitle>
           <p className="mt-4 text-3xl font-semibold">
             {orders.length > 0 ? formatCurrency(totalRevenue, orders[0].currency) : '0,00 EUR'}
           </p>
@@ -152,7 +163,7 @@ export default async function DashboardPage({
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-semibold text-slate-100">Vos dernieres creations</h2>
-            <p className="text-sm text-slate-400">Galerie des visuels recents generes par l'IA.</p>
+            <p className="text-sm text-slate-400">Galerie des visuels recents generes par l&apos;IA.</p>
           </div>
           <Button variant="ghost" href="/studio">
             Continuer un projet
@@ -247,3 +258,4 @@ export default async function DashboardPage({
     </main>
   );
 }
+

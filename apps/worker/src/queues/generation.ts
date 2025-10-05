@@ -1,6 +1,6 @@
 import { Queue, Worker } from 'bullmq';
-import { redisConnection } from './redis-connection.js';
-import { handleGenerationJob } from '../jobs/generation.js';
+import { getRedisConnection } from './redis-connection';
+import { handleGenerationJob } from '../jobs/generation';
 
 const QUEUE_NAME = 'generation';
 
@@ -8,10 +8,11 @@ let queueInstance: Queue | null = null;
 
 export function getGenerationQueue() {
   if (!queueInstance) {
-    queueInstance = new Queue(QUEUE_NAME, { connection: redisConnection });
+    const connection = getRedisConnection();
+    queueInstance = new Queue(QUEUE_NAME, { connection });
 
     new Worker(QUEUE_NAME, handleGenerationJob, {
-      connection: redisConnection,
+      connection,
       autorun: true,
     });
   }

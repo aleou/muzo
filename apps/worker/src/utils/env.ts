@@ -16,6 +16,13 @@ const schema = z.object({
 
 export type WorkerEnv = z.infer<typeof schema>;
 
+export class WorkerEnvError extends Error {
+  constructor(public readonly issues: z.ZodIssue[]) {
+    super('Invalid worker environment variables');
+    this.name = 'WorkerEnvError';
+  }
+}
+
 export function getWorkerEnv(): WorkerEnv {
   const parsed = schema.safeParse({
     REDIS_URL: process.env.REDIS_URL,
@@ -32,7 +39,7 @@ export function getWorkerEnv(): WorkerEnv {
   });
 
   if (!parsed.success) {
-    throw new Error('Invalid worker environment variables: ' + parsed.error.message);
+    throw new WorkerEnvError(parsed.error.issues);
   }
 
   return parsed.data;

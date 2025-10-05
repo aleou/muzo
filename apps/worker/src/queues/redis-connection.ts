@@ -1,9 +1,23 @@
 import { ConnectionOptions } from 'bullmq';
-import { getWorkerEnv } from '../utils/env.js';
+import { getWorkerEnv } from '../utils/env';
 
-const env = getWorkerEnv();
+let cachedConnection: ConnectionOptions | null = null;
 
-export const redisConnection: ConnectionOptions = {
-  url: env.REDIS_URL,
-  maxRetriesPerRequest: null,
-};
+export function getRedisConnection(): ConnectionOptions {
+  if (!cachedConnection) {
+    const env = getWorkerEnv();
+    const parsed = new URL(env.REDIS_URL);
+    const isSecure = parsed.protocol === 'rediss:';
+
+    cachedConnection = {
+      host: parsed.hostname,
+      port: parsed.port ? Number(parsed.port) : undefined,
+      username: parsed.username || undefined,
+      password: parsed.password || undefined,
+      tls: isSecure ? {} : undefined,
+      maxRetriesPerRequest: null,
+    } satisfies ConnectionOptions;
+  }
+
+  return cachedConnection;
+}

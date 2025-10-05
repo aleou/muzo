@@ -15,11 +15,12 @@ export function FinalCtaSection() {
         <div className="flex flex-wrap justify-center gap-4">
           <Button href="/studio">Je personnalise mon produit</Button>
           <Button variant="secondary" href="mailto:hello@muzo.app">
-            Besoin d'aide ?
+            Besoin d&apos;aide ?
           </Button>
         </div>
       </div>
     </section>
   );
 }
+
 

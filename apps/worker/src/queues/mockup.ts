@@ -1,6 +1,6 @@
 import { Queue, Worker } from 'bullmq';
-import { redisConnection } from './redis-connection.js';
-import { handleMockupJob } from '../jobs/mockup.js';
+import { getRedisConnection } from './redis-connection';
+import { handleMockupJob } from '../jobs/mockup';
 
 const QUEUE_NAME = 'mockup';
 
@@ -8,10 +8,11 @@ let queueInstance: Queue | null = null;
 
 export function getMockupQueue() {
   if (!queueInstance) {
-    queueInstance = new Queue(QUEUE_NAME, { connection: redisConnection });
+    const connection = getRedisConnection();
+    queueInstance = new Queue(QUEUE_NAME, { connection });
 
     new Worker(QUEUE_NAME, handleMockupJob, {
-      connection: redisConnection,
+      connection,
       autorun: true,
     });
   }

@@ -1,4 +1,4 @@
-import { prisma } from '../prisma-client.js';
+﻿import { prisma } from '../prisma-client';
 import type { Prisma } from '@prisma/client';
 
 export function createAsset(data: Prisma.AssetCreateInput) {
@@ -8,3 +8,5 @@ export function createAsset(data: Prisma.AssetCreateInput) {
 export function listAssetsByOwner(ownerId: string) {
   return prisma.asset.findMany({ where: { ownerId }, orderBy: { createdAt: 'desc' } });
 }
+
+

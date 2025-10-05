@@ -1,6 +1,6 @@
-import { JobStatus } from '@prisma/client';
+﻿import { JobStatus } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
-import { prisma } from '../prisma-client.js';
+import { prisma } from '../prisma-client';
 
 type JobTypeValue = 'GENERATION' | 'MOCKUP' | 'FULFILLMENT';
 
@@ -15,3 +15,5 @@ export function updateJob(id: string, data: Prisma.JobUpdateInput) {
 export function findStalledJobs(type: JobTypeValue) {
   return prisma.job.findMany({ where: { type, status: JobStatus.PENDING } });
 }
+
+

@@ -1,7 +1,13 @@
-import { cn } from '@/lib/utils';
+﻿import { cn } from '@/lib/utils';
 import type { HTMLAttributes } from 'react';
 
-export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+type DivProps = HTMLAttributes<HTMLDivElement>;
+
+type HeadingProps = HTMLAttributes<HTMLHeadingElement>;
+
+type ParagraphProps = HTMLAttributes<HTMLParagraphElement>;
+
+export function Card({ className, ...props }: DivProps) {
   return (
     <div
       className={cn(
@@ -13,10 +19,18 @@ export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   );
 }
 
-export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
+export function CardHeader({ className, ...props }: DivProps) {
+  return <div className={cn('space-y-2 border-b border-slate-800 pb-4', className)} {...props} />;
+}
+
+export function CardContent({ className, ...props }: DivProps) {
+  return <div className={cn('space-y-4 pt-4', className)} {...props} />;
+}
+
+export function CardTitle({ className, ...props }: HeadingProps) {
   return <h3 className={cn('text-xl font-semibold text-slate-100', className)} {...props} />;
 }
 
-export function CardDescription({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {
+export function CardDescription({ className, ...props }: ParagraphProps) {
   return <p className={cn('mt-2 text-sm text-slate-300', className)} {...props} />;
 }

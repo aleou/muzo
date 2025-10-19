@@ -1,0 +1,412 @@
+import { AssetType, ProjectStatus, Provider, Prisma } from '@prisma/client';
+import { prisma } from '@muzo/db';
+import { z } from 'zod';
+
+const createProjectFromUploadSchema = z.object({
+  userId: z.string().min(1),
+  originalFilename: z.string().min(1),
+  s3Key: z.string().min(1),
+  publicUrl: z.string().url(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  dpi: z.number().int().positive().optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  mimeType: z.string().optional(),
+});
+
+const defaultPromptText =
+  "Parlez-nous du rendu final que vous voulez obtenir (ambiance, couleurs, style artistique).";
+
+const defaultPromptHints = [
+  {
+    id: 'subject',
+    title: 'Sujet principal',
+    description:
+      'Qui ou quoi doit etre mis en valeur ? Exemple :  notre golden retriever en plein saut ',
+  },
+  {
+    id: 'ambiance',
+    title: 'Ambiance & emotion',
+    description:
+      'Precisez latmosphere (douce, festive, dramatique) et les couleurs dominantes pour guider la generation.',
+  },
+  {
+    id: 'style',
+    title: 'Style artistique',
+    description:
+      'Illustration pastel, photo realiste, peinture a lhuile... Inspirez-vous de nos suggestions si besoin.',
+  },
+] as const;
+
+function generateProjectTitle(filename: string) {
+  const baseName = filename.replace(/\s+/g, ' ').trim();
+  const withoutExtension = baseName.replace(/\.[^.]+$/, '');
+
+  if (withoutExtension.length > 0) {
+    return withoutExtension.length > 80
+      ? withoutExtension.slice(0, 77).trimEnd() + '...'
+      : withoutExtension;
+  }
+
+  const date = new Date().toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+
+  return `Projet MUZO ${date}`;
+}
+
+export type CreateProjectFromUploadInput = z.infer<typeof createProjectFromUploadSchema>;
+
+export async function createProjectFromUpload(input: unknown) {
+  const payload = createProjectFromUploadSchema.parse(input);
+  const dpi = payload.dpi ?? 300;
+  const title = generateProjectTitle(payload.originalFilename);
+
+  const assetData: AssetInsertData = {
+    ownerId: payload.userId,
+    type: AssetType.INPUT,
+    s3Key: payload.s3Key,
+    url: payload.publicUrl,
+    width: payload.width,
+    height: payload.height,
+    dpi,
+    metadata: {
+      sizeBytes: payload.sizeBytes ?? null,
+      mimeType: payload.mimeType ?? null,
+      originalFilename: payload.originalFilename,
+    },
+  };
+
+  const projectData: ProjectInsertData = {
+    userId: payload.userId,
+    title,
+    inputImageUrl: payload.publicUrl,
+    promptText: defaultPromptText,
+    status: ProjectStatus.DRAFT,
+    previewCount: 0,
+    promptHints: defaultPromptHints,
+  };
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const asset = await tx.asset.create({ data: assetData });
+      const project = await tx.project.create({ data: projectData });
+      return { project, asset };
+    });
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2031'
+    ) {
+      console.warn(
+        '[studio] Transaction fallback triggered; MongoDB replica set not available.',
+      );
+      return await createProjectAndAssetWithoutReplicaSet(assetData, projectData);
+    }
+
+    throw error;
+  }
+}
+
+type AssetInsertData = {
+  ownerId: string;
+  type: AssetType;
+  s3Key: string;
+  url: string;
+  width: number;
+  height: number;
+  dpi: number;
+  metadata: {
+    sizeBytes: number | null;
+    mimeType: string | null;
+    originalFilename: string;
+  };
+};
+
+type ProjectInsertData = {
+  userId: string;
+  title: string;
+  inputImageUrl: string;
+  promptText: string;
+  status: ProjectStatus;
+  previewCount: number;
+  promptHints: typeof defaultPromptHints;
+};
+
+async function createProjectAndAssetWithoutReplicaSet(
+  assetData: AssetInsertData,
+  projectData: ProjectInsertData,
+) {
+  const now = new Date();
+  const now = new Date();
+
+  const assetInsertResult = await prisma.$runCommandRaw({
+    insert: 'Asset',
+    documents: [
+      {
+        ownerId: toMongoObjectId(assetData.ownerId),
+        type: assetData.type,
+        s3Key: assetData.s3Key,
+        url: assetData.url,
+        width: assetData.width,
+        height: assetData.height,
+        dpi: assetData.dpi,
+        colorProfile: null,
+        metadata: {
+          sizeBytes: assetData.metadata.sizeBytes,
+          mimeType: assetData.metadata.mimeType,
+          originalFilename: assetData.metadata.originalFilename,
+        },
+        createdAt: toMongoDate(now),
+      },
+    ],
+  });
+
+  const assetId =
+    extractInsertResultId(assetInsertResult) ??
+    (await prisma.asset
+      .findFirst({
+        where: {
+          ownerId: assetData.ownerId,
+          s3Key: assetData.s3Key,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        select: {
+          id: true,
+        },
+      })
+      .then((record) => record?.id));
+
+  if (!assetId) {
+    throw new Error('Asset creation failed without replica-set support');
+  }
+
+  const projectInsertResult = await prisma.$runCommandRaw({
+    insert: 'Project',
+    documents: [
+      {
+        userId: toMongoObjectId(projectData.userId),
+        title: projectData.title,
+        inputImageUrl: projectData.inputImageUrl,
+        promptText: projectData.promptText,
+        status: projectData.status,
+        productProvider: null,
+        productId: null,
+        productVariantId: null,
+        productOptions: null,
+        previewCount: projectData.previewCount,
+        promptHints: projectData.promptHints,
+        styleId: null,
+        createdAt: toMongoDate(now),
+        updatedAt: toMongoDate(now),
+      },
+    ],
+  });
+
+  const projectId =
+    extractInsertResultId(projectInsertResult) ??
+    (await prisma.project
+      .findFirst({
+        where: {
+          userId: projectData.userId,
+          inputImageUrl: projectData.inputImageUrl,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        select: {
+          id: true,
+        },
+      })
+      .then((record) => record?.id));
+
+  if (!projectId) {
+    throw new Error('Project creation failed without replica-set support');
+  }
+
+  const [asset, project] = await Promise.all([
+    prisma.asset.findUniqueOrThrow({ where: { id: assetId } }),
+    prisma.project.findUniqueOrThrow({ where: { id: projectId } }),
+  ]);
+
+  return { asset, project };
+}
+
+function toMongoObjectId(id: string) {
+  if (!/^[a-fA-F0-9]{24}$/.test(id)) {
+    throw new Error('Invalid ObjectId string: ' + id);
+  }
+  return { $oid: id };
+}
+
+function toMongoDate(date: Date) {
+  return {
+    $date: {
+      $numberLong: date.getTime().toString(),
+    },
+  };
+}
+
+function extractInsertResultId(result: unknown): string | null {
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+
+  const insertedId = (result as { insertedId?: unknown }).insertedId;
+  if (insertedId) {
+    const parsed = parseExtendedObjectId(insertedId);
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  const insertedIds = (result as { insertedIds?: unknown }).insertedIds;
+
+  if (Array.isArray(insertedIds)) {
+    for (const value of insertedIds) {
+      const parsed = parseExtendedObjectId(value);
+      if (parsed) {
+        return parsed;
+      }
+    }
+  } else if (insertedIds && typeof insertedIds === 'object') {
+    const values = Object.values(insertedIds as Record<string, unknown>);
+    for (const value of values) {
+      const parsed = parseExtendedObjectId(value);
+      if (parsed) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
+}
+
+function parseExtendedObjectId(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (
+    value &&
+    typeof value === 'object' &&
+    typeof (value as { toHexString?: unknown }).toHexString === 'function'
+  ) {
+    return (value as { toHexString: () => string }).toHexString();
+  }
+
+  if (value && typeof value === 'object' && typeof (value as { toString?: unknown }).toString === 'function') {
+    const serialized = (value as { toString: () => string }).toString();
+    if (/^[a-fA-F0-9]{24}$/.test(serialized)) {
+      return serialized;
+    }
+  }
+
+  if (value && typeof value === 'object' && '$oid' in value) {
+    const objectId = (value as { $oid?: unknown }).$oid;
+    return typeof objectId === 'string' ? objectId : null;
+  }
+
+  return null;
+}
+
+const updateProjectBriefSchema = z.object({
+  projectId: z.string().min(1),
+  userId: z.string().min(1),
+  title: z.string().min(1).max(120),
+  promptText: z.string().min(1).max(4000),
+  styleId: z.string().optional(),
+  promptHints: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        description: z.string(),
+      }),
+    )
+    .optional(),
+});
+
+export type UpdateProjectBriefInput = z.infer<typeof updateProjectBriefSchema>;
+
+export async function updateProjectBrief(input: unknown) {
+  const payload = updateProjectBriefSchema.parse(input);
+
+  const project = await prisma.project.update({
+    where: {
+      id: payload.projectId,
+      userId: payload.userId,
+    },
+    data: {
+      title: payload.title,
+      promptText: payload.promptText,
+      styleId: payload.styleId,
+      promptHints: payload.promptHints ?? defaultPromptHints,
+    },
+  });
+
+  return project;
+}
+
+const recordPreviewUsageSchema = z.object({
+  projectId: z.string().min(1),
+  userId: z.string().min(1),
+});
+
+export type IncrementPreviewCountInput = z.infer<typeof recordPreviewUsageSchema>;
+
+export async function incrementPreviewCount(input: unknown) {
+  const payload = recordPreviewUsageSchema.parse(input);
+
+  const project = await prisma.project.update({
+    where: {
+      id: payload.projectId,
+      userId: payload.userId,
+    },
+    data: {
+      previewCount: { increment: 1 },
+    },
+  });
+
+  return project.previewCount;
+}
+
+const productSelectionSchema = z.object({
+  projectId: z.string().min(1),
+  userId: z.string().min(1),
+  provider: z.nativeEnum(Provider).optional(),
+  productId: z.string().optional(),
+  productVariantId: z.string().optional(),
+  productOptions: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type SaveProjectProductSelectionInput = z.infer<typeof productSelectionSchema>;
+
+export async function saveProjectProductSelection(input: unknown) {
+  const payload = productSelectionSchema.parse(input);
+
+  const data: Record<string, unknown> = {
+    productId: payload.productId ?? null,
+    productVariantId: payload.productVariantId ?? null,
+    productOptions: payload.productOptions ?? null,
+  };
+
+  if (payload.provider) {
+    data.productProvider = payload.provider;
+  }
+
+  const project = await prisma.project.update({
+    where: { id: payload.projectId, userId: payload.userId },
+    data,
+  });
+
+  return project;
+}
+
+export function hasFreePreviewAvailable(project: { previewCount: number }) {
+  return project.previewCount < 1;
+}

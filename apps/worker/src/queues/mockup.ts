@@ -1,21 +1,14 @@
-import { Queue, Worker } from 'bullmq';
-import { getRedisConnection } from './redis-connection';
+import type { WorkerOptions } from 'bullmq';
 import { handleMockupJob } from '../jobs/mockup';
+import { ensureQueue } from './queue-factory';
 
 const QUEUE_NAME = 'mockup';
 
-let queueInstance: Queue | null = null;
-
 export function getMockupQueue() {
-  if (!queueInstance) {
-    const connection = getRedisConnection();
-    queueInstance = new Queue(QUEUE_NAME, { connection });
+  const concurrency = Number(process.env.MOCKUP_WORKER_CONCURRENCY ?? '1');
+  const workerOptions: WorkerOptions = {
+    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 1,
+  };
 
-    new Worker(QUEUE_NAME, handleMockupJob, {
-      connection,
-      autorun: true,
-    });
-  }
-
-  return queueInstance;
+  return ensureQueue(QUEUE_NAME, handleMockupJob, workerOptions);
 }

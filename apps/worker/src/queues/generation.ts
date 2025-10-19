@@ -1,21 +1,14 @@
-import { Queue, Worker } from 'bullmq';
-import { getRedisConnection } from './redis-connection';
+import type { WorkerOptions } from 'bullmq';
 import { handleGenerationJob } from '../jobs/generation';
+import { ensureQueue } from './queue-factory';
 
 const QUEUE_NAME = 'generation';
 
-let queueInstance: Queue | null = null;
-
 export function getGenerationQueue() {
-  if (!queueInstance) {
-    const connection = getRedisConnection();
-    queueInstance = new Queue(QUEUE_NAME, { connection });
+  const concurrency = Number(process.env.GENERATION_WORKER_CONCURRENCY ?? '1');
+  const workerOptions: WorkerOptions = {
+    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 1,
+  };
 
-    new Worker(QUEUE_NAME, handleGenerationJob, {
-      connection,
-      autorun: true,
-    });
-  }
-
-  return queueInstance;
+  return ensureQueue(QUEUE_NAME, handleGenerationJob, workerOptions);
 }

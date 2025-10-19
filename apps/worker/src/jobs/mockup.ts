@@ -1,7 +1,7 @@
 import { Job } from 'bullmq';
 import { MockupJob } from '@muzo/queue';
 import { getMockupService } from '@muzo/ai';
-import { createLogger } from '../utils/logger.js';
+import { createLogger } from '../utils/logger';
 
 const logger = createLogger('mockup-job');
 

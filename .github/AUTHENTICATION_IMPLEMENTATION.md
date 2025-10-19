@@ -153,4 +153,4 @@ GOOGLE_CLIENT_SECRET=xxxxx
 
 **Status:** ✅ Production Ready  
 **Date:** 5 octobre 2025  
-**Author:** GitHub Copilot + Alexi
+**Author:** Alexi

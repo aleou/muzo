@@ -1,3 +1,3 @@
-export * from './provider.js';
-export * from './providers/printful.js';
-export * from './providers/printify.js';
+export * from './provider';
+export * from './providers/printful';
+export * from './providers/printify';

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { fulfillmentJobSchema } from '../schemas.js';
+import { fulfillmentJobSchema } from '../schemas';
 
 export type FulfillmentJob = z.infer<typeof fulfillmentJobSchema>;
 

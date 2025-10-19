@@ -11,6 +11,7 @@ const logger = createLogger('worker');
 
 async function bootstrap() {
   try {
+    // TODO(queue): Replace local queue bootstrap with packages/queue runner once job definitions are centralised.
     const { initQueues } = await import('./queues/init');
     await initQueues();
     logger.info('Worker bootstrapped and listening for jobs');

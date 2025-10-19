@@ -72,6 +72,7 @@ model Style {
   projects        Project[]
 }
 
+// TODO(studio): Refactor this Project model into dedicated StudioProject/ProjectAsset/ProjectGeneration/ProjectSelection tables and add reference prompts + suggestion catalogs plus an order/outbox event log to support the guided studio workflow.
 model Project {
   id             String          @id @default(auto()) @map("_id") @db.ObjectId
   userId         String          @db.ObjectId
@@ -82,6 +83,12 @@ model Project {
   style          Style?          @relation(fields: [styleId], references: [id])
   promptText     String
   status         ProjectStatus   @default(DRAFT)
+  productProvider Provider?
+  productId       String?
+  productVariantId String?
+  productOptions  Json?
+  previewCount    Int            @default(0)
+  promptHints     Json?
   outputs        ProjectOutput[]
   orders         Order[]         @relation("ProjectOrders")
   jobs           Job[]

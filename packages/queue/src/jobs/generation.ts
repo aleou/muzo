@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { generationJobSchema } from '../schemas.js';
+import { generationJobSchema } from '../schemas';
 
 export type GenerationJob = z.infer<typeof generationJobSchema>;
 

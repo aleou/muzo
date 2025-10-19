@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+// TODO(config): Move to packages/config to share validation with worker & scripts.
 const schema = z.object({
   S3_ACCESS_KEY_ID: z.string().min(1, 'S3 access key id is required'),
   S3_SECRET_ACCESS_KEY: z.string().min(1, 'S3 secret access key is required'),

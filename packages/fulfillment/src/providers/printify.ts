@@ -1,6 +1,6 @@
 import axios from 'axios';
 import pino from 'pino';
-import type { FulfillmentOrder, FulfillmentProvider } from '../provider.js';
+import type { FulfillmentOrder, FulfillmentProvider } from '../provider';
 
 export function createPrintifyProvider(): FulfillmentProvider {
   const apiKey = process.env.PRINTIFY_API_KEY;

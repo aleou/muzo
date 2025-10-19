@@ -1,21 +1,14 @@
-import { Queue, Worker } from 'bullmq';
-import { getRedisConnection } from './redis-connection';
+import type { WorkerOptions } from 'bullmq';
 import { handleFulfillmentJob } from '../jobs/fulfillment';
+import { ensureQueue } from './queue-factory';
 
 const QUEUE_NAME = 'fulfillment';
 
-let queueInstance: Queue | null = null;
-
 export function getFulfillmentQueue() {
-  if (!queueInstance) {
-    const connection = getRedisConnection();
-    queueInstance = new Queue(QUEUE_NAME, { connection });
+  const concurrency = Number(process.env.FULFILLMENT_WORKER_CONCURRENCY ?? '1');
+  const workerOptions: WorkerOptions = {
+    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 1,
+  };
 
-    new Worker(QUEUE_NAME, handleFulfillmentJob, {
-      connection,
-      autorun: true,
-    });
-  }
-
-  return queueInstance;
+  return ensureQueue(QUEUE_NAME, handleFulfillmentJob, workerOptions);
 }

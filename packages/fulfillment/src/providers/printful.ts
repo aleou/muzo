@@ -1,6 +1,6 @@
 import axios from 'axios';
 import pino from 'pino';
-import type { FulfillmentOrder, FulfillmentProvider } from '../provider.js';
+import type { FulfillmentOrder, FulfillmentProvider } from '../provider';
 
 export function createPrintfulProvider(): FulfillmentProvider {
   const apiKey = process.env.PRINTFUL_API_KEY;

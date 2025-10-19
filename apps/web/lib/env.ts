@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+// TODO(config): Replace with packages/config shared schema when configuration unification lands.
 const schema = z.object({
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().min(1, 'Stripe publishable key is required'),
   NEXT_PUBLIC_API_BASE_URL: z.string().url().optional(),

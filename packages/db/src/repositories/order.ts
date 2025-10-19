@@ -1,6 +1,7 @@
-﻿import { prisma } from '../prisma-client';
+import { prisma } from '../prisma-client';
 import type { Prisma } from '@prisma/client';
 
+// TODO(domain): Route order creation through packages/api + domain state machine with outbox events.
 export function createOrder(data: Prisma.OrderCreateInput) {
   return prisma.order.create({ data });
 }
@@ -26,5 +27,3 @@ export function listOrdersByUser(userId: string) {
     },
   });
 }
-
-

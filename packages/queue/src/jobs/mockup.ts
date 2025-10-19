@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mockupJobSchema } from '../schemas.js';
+import { mockupJobSchema } from '../schemas';
 
 export type MockupJob = z.infer<typeof mockupJobSchema>;
 

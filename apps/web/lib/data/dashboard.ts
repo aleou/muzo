@@ -1,7 +1,8 @@
-﻿import { getUserById } from '@muzo/db/repositories/user';
+import { getUserById } from '@muzo/db/repositories/user';
 import { listOrdersByUser } from '@muzo/db/repositories/order';
 import { listProjectsByUser } from '@muzo/db/repositories/project';
 
+// TODO(api): Replace direct repository calls with packages/api once the service layer is introduced to decouple web from db access.
 export async function getDashboardData(userId: string) {
   const userRecord = await getUserById(userId);
 
@@ -24,5 +25,3 @@ export async function getDashboardData(userId: string) {
     orders,
   } as const;
 }
-
-

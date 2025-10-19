@@ -1,7 +1,7 @@
 import { Job } from 'bullmq';
 import { FulfillmentJob } from '@muzo/queue';
 import { getFulfillmentProvider } from '@muzo/fulfillment';
-import { createLogger } from '../utils/logger.js';
+import { createLogger } from '../utils/logger';
 
 const logger = createLogger('fulfillment-job');
 

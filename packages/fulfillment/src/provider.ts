@@ -27,9 +27,10 @@ export interface FulfillmentProvider {
 
 export type ProviderFactory = (env?: Record<string, string | undefined>) => FulfillmentProvider;
 
+// TODO(fulfillment): Introduce routing by SKU/country and surface SLA/variant metadata when resolving providers.
 export async function getFulfillmentProvider(provider: ProviderId) {
-  const { createPrintfulProvider } = await import('./providers/printful.js');
-  const { createPrintifyProvider } = await import('./providers/printify.js');
+  const { createPrintfulProvider } = await import('./providers/printful');
+  const { createPrintifyProvider } = await import('./providers/printify');
 
   if (provider === 'printful') {
     return createPrintfulProvider();

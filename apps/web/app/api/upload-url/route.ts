@@ -1,4 +1,4 @@
-﻿import { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
@@ -62,6 +62,7 @@ export async function POST(request: Request) {
   const command = new PutObjectCommand({
     Bucket: env.S3_BUCKET,
     Key: key,
+    ACL: 'public-read',
     ContentType: contentType,
     ...(checksum ? { ContentMD5: checksum } : {}),
     Metadata: {
@@ -70,6 +71,7 @@ export async function POST(request: Request) {
   });
 
   const uploadUrl = await getSignedUrl(client, command, { expiresIn: 60 });
+  // TODO(moderation): Trigger asset intake pipeline (metadata extraction, NSFW/logo checks) and create initial studio project record before exposing the asset to generation flows.
 
   return NextResponse.json(
     {

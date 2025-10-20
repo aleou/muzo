@@ -1,4 +1,5 @@
-﻿export * from './prisma-client';
+export { Prisma, JobStatus, JobType } from '@prisma/client';
+export * from './prisma-client';
 export * from './repositories/project';
 export * from './repositories/order';
 export * from './repositories/style';

@@ -6,7 +6,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { auth } from '@/auth';
 import { buildPublicS3Url, getS3Client } from '@/lib/s3';
 import { getServerEnv } from '@/lib/server-env';
-import { getUploadRateLimiter } from '@/lib/rate-limit';
+import { consumeUploadRateLimit } from '@/lib/rate-limit';
 
 const payloadSchema = z.object({
   filename: z.string().min(1),
@@ -29,19 +29,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 });
   }
 
-  const rateLimiter = getUploadRateLimiter();
-  const limitKey = `user:${session.user.id}`;
-  const limitResult = await rateLimiter.limit(limitKey);
+  const rateResult = await consumeUploadRateLimit(session.user.id);
 
-  if (!limitResult.success) {
+  if (!rateResult.success) {
     return NextResponse.json(
       { error: 'Rate limit exceeded' },
       {
         status: 429,
         headers: {
-          'RateLimit-Limit': limitResult.limit.toString(),
-          'RateLimit-Remaining': Math.max(0, limitResult.remaining).toString(),
-          'RateLimit-Reset': limitResult.reset.toString(),
+          'RateLimit-Limit': rateResult.limit.toString(),
+          'RateLimit-Remaining': Math.max(0, rateResult.remaining).toString(),
+          'RateLimit-Reset': rateResult.reset.toString(),
         },
       },
     );
@@ -71,7 +69,6 @@ export async function POST(request: Request) {
   });
 
   const uploadUrl = await getSignedUrl(client, command, { expiresIn: 60 });
-  // TODO(moderation): Trigger asset intake pipeline (metadata extraction, NSFW/logo checks) and create initial studio project record before exposing the asset to generation flows.
 
   return NextResponse.json(
     {
@@ -86,9 +83,9 @@ export async function POST(request: Request) {
     },
     {
       headers: {
-        'RateLimit-Limit': limitResult.limit.toString(),
-        'RateLimit-Remaining': Math.max(0, limitResult.remaining - 1).toString(),
-        'RateLimit-Reset': limitResult.reset.toString(),
+        'RateLimit-Limit': rateResult.limit.toString(),
+        'RateLimit-Remaining': Math.max(0, rateResult.remaining).toString(),
+        'RateLimit-Reset': rateResult.reset.toString(),
       },
     },
   );

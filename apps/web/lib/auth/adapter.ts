@@ -73,7 +73,8 @@ export function createAuthAdapter(): Adapter {
         return await prisma.user.update({ where: { id }, data });
       } catch (error: any) {
         // Fallback to raw MongoDB command if transactions are not available
-        if (error?.code === 'P2031') {
+        // Check for both P2031 (transaction error) and connection errors
+        if (error?.code === 'P2031' || error?.message?.includes('transaction')) {
           
           // Convert dates to MongoDB Extended JSON format
           const updateDoc: any = {};
@@ -85,18 +86,23 @@ export function createAuthAdapter(): Adapter {
             }
           }
           
-          await prisma.$runCommandRaw({
-            update: 'User',
-            updates: [
-              {
-                q: { _id: { $oid: id } },
-                u: { $set: updateDoc },
-              },
-            ],
-          });
-          
-          // Fetch and return the updated user
-          return await prisma.user.findUnique({ where: { id } });
+          try {
+            await prisma.$runCommandRaw({
+              update: 'User',
+              updates: [
+                {
+                  q: { _id: { $oid: id } },
+                  u: { $set: updateDoc },
+                },
+              ],
+            });
+            
+            // Fetch and return the updated user
+            return await prisma.user.findUnique({ where: { id } });
+          } catch (rawError: any) {
+            console.error('[auth] Failed to update user:', rawError);
+            throw new Error(`Failed to update user: ${rawError.message}`);
+          }
         }
         throw error;
       }
@@ -118,35 +124,32 @@ export function createAuthAdapter(): Adapter {
     },
 
     async createSession(session) {
+      // Always use raw MongoDB command to avoid transaction requirements
+      const objectId = generateObjectId();
+      
       try {
-        return await prisma.session.create({ data: session });
+        await prisma.$runCommandRaw({
+          insert: 'Session',
+          documents: [
+            {
+              _id: { $oid: objectId },
+              sessionToken: session.sessionToken,
+              userId: { $oid: session.userId },
+              expires: { $date: new Date(session.expires).toISOString() },
+            },
+          ],
+        });
+        
+        // Return the session in the format NextAuth expects
+        return {
+          id: objectId,
+          sessionToken: session.sessionToken,
+          userId: session.userId,
+          expires: session.expires,
+        };
       } catch (error: any) {
-        // Fallback to raw MongoDB command if transactions are not available
-        if (error?.code === 'P2031') {
-          
-          const objectId = generateObjectId();
-          
-          await prisma.$runCommandRaw({
-            insert: 'Session',
-            documents: [
-              {
-                _id: { $oid: objectId },
-                sessionToken: session.sessionToken,
-                userId: { $oid: session.userId },
-                expires: { $date: new Date(session.expires).toISOString() },
-              },
-            ],
-          });
-          
-          // Return the session in the format NextAuth expects
-          return {
-            id: objectId,
-            sessionToken: session.sessionToken,
-            userId: session.userId,
-            expires: session.expires,
-          };
-        }
-        throw error;
+        console.error('[auth] Failed to create session:', error);
+        throw new Error(`Failed to create session: ${error.message}`);
       }
     },
 
@@ -169,35 +172,32 @@ export function createAuthAdapter(): Adapter {
     },
 
     async createVerificationToken(data) {
+      // Always use raw MongoDB command to avoid transaction requirements
+      const objectId = generateObjectId();
+      
       try {
-        return await prisma.verificationToken.create({ data });
+        await prisma.$runCommandRaw({
+          insert: 'VerificationToken',
+          documents: [
+            {
+              _id: { $oid: objectId },
+              identifier: data.identifier,
+              token: data.token,
+              expires: { $date: new Date(data.expires).toISOString() },
+            },
+          ],
+        });
+        
+        // Return the document in the format NextAuth expects
+        return {
+          id: objectId,
+          identifier: data.identifier,
+          token: data.token,
+          expires: data.expires,
+        };
       } catch (error: any) {
-        // Fallback to raw MongoDB command if transactions are not available
-        if (error?.code === 'P2031') {
-          
-          const objectId = generateObjectId();
-          
-          await prisma.$runCommandRaw({
-            insert: 'VerificationToken',
-            documents: [
-              {
-                _id: { $oid: objectId },
-                identifier: data.identifier,
-                token: data.token,
-                expires: { $date: new Date(data.expires).toISOString() },
-              },
-            ],
-          });
-          
-          // Return the document in the format NextAuth expects
-          return {
-            id: objectId,
-            identifier: data.identifier,
-            token: data.token,
-            expires: data.expires,
-          };
-        }
-        throw error;
+        console.error('[auth] Failed to create verification token:', error);
+        throw new Error(`Failed to create verification token: ${error.message}`);
       }
     },
 
@@ -216,16 +216,22 @@ export function createAuthAdapter(): Adapter {
           });
         } catch (error: any) {
           // Fallback to raw MongoDB command if transactions are not available
-          if (error?.code === 'P2031') {
-            await prisma.$runCommandRaw({
-              delete: 'VerificationToken',
-              deletes: [
-                {
-                  q: { identifier, token },
-                  limit: 1,
-                },
-              ],
-            });
+          // Check for both P2031 (transaction error) and connection errors
+          if (error?.code === 'P2031' || error?.message?.includes('transaction')) {
+            try {
+              await prisma.$runCommandRaw({
+                delete: 'VerificationToken',
+                deletes: [
+                  {
+                    q: { identifier, token },
+                    limit: 1,
+                  },
+                ],
+              });
+            } catch (rawError: any) {
+              console.error('[auth] Failed to delete verification token:', rawError);
+              // Continue anyway since we found the token
+            }
           } else {
             throw error;
           }

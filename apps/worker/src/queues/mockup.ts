@@ -1,14 +1,21 @@
-import type { WorkerOptions } from 'bullmq';
+import { JobType } from '@muzo/db';
+import { createQueueWorker } from '@muzo/queue';
 import { handleMockupJob } from '../jobs/mockup';
-import { ensureQueue } from './queue-factory';
+import { createLogger } from '../utils/logger';
 
-const QUEUE_NAME = 'mockup';
+export function createMockupWorker() {
+  const concurrency = resolveConcurrency(process.env.MOCKUP_WORKER_CONCURRENCY);
+  const logger = createLogger('mockup-worker');
 
-export function getMockupQueue() {
-  const concurrency = Number(process.env.MOCKUP_WORKER_CONCURRENCY ?? '1');
-  const workerOptions: WorkerOptions = {
-    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 1,
-  };
+  return createQueueWorker({
+    type: JobType.MOCKUP,
+    handler: handleMockupJob,
+    concurrency,
+    logger,
+  });
+}
 
-  return ensureQueue(QUEUE_NAME, handleMockupJob, workerOptions);
+function resolveConcurrency(rawValue: string | undefined) {
+  const parsed = Number(rawValue ?? '1');
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 1;
 }

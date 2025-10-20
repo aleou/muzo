@@ -1,14 +1,21 @@
-import type { WorkerOptions } from 'bullmq';
+import { JobType } from '@muzo/db';
+import { createQueueWorker } from '@muzo/queue';
 import { handleFulfillmentJob } from '../jobs/fulfillment';
-import { ensureQueue } from './queue-factory';
+import { createLogger } from '../utils/logger';
 
-const QUEUE_NAME = 'fulfillment';
+export function createFulfillmentWorker() {
+  const concurrency = resolveConcurrency(process.env.FULFILLMENT_WORKER_CONCURRENCY);
+  const logger = createLogger('fulfillment-worker');
 
-export function getFulfillmentQueue() {
-  const concurrency = Number(process.env.FULFILLMENT_WORKER_CONCURRENCY ?? '1');
-  const workerOptions: WorkerOptions = {
-    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 1,
-  };
+  return createQueueWorker({
+    type: JobType.FULFILLMENT,
+    handler: handleFulfillmentJob,
+    concurrency,
+    logger,
+  });
+}
 
-  return ensureQueue(QUEUE_NAME, handleFulfillmentJob, workerOptions);
+function resolveConcurrency(rawValue: string | undefined) {
+  const parsed = Number(rawValue ?? '1');
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 1;
 }

@@ -1,21 +1,10 @@
-const RATE_LIMIT_REGEX = /max requests limit exceeded/i;
-
-export function isRedisRateLimitError(error: unknown): boolean {
-  if (!error) {
-    return false;
+export class FatalJobError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FatalJobError';
   }
+}
 
-  if (error instanceof Error) {
-    return RATE_LIMIT_REGEX.test(error.message);
-  }
-
-  if (typeof error === 'object' && 'message' in (error as Record<string, unknown>)) {
-    const message = (error as { message?: unknown }).message;
-
-    if (typeof message === 'string') {
-      return RATE_LIMIT_REGEX.test(message);
-    }
-  }
-
-  return false;
+export function isFatalJobError(error: unknown): error is FatalJobError {
+  return error instanceof FatalJobError;
 }

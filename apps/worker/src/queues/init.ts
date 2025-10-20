@@ -1,36 +1,51 @@
-import { getGenerationQueue } from './generation';
-import { getMockupQueue } from './mockup';
-import { getFulfillmentQueue } from './fulfillment';
+import { createGenerationWorker } from './generation';
+import { createMockupWorker } from './mockup';
+import { createFulfillmentWorker } from './fulfillment';
 import { createLogger } from '../utils/logger';
+import type { QueueWorkerControl } from '@muzo/queue';
+
+const activeWorkers: QueueWorkerControl[] = [];
 
 export async function initQueues() {
+  await shutdownQueues();
+
   const logger = createLogger('queue-init');
   const enabledQueues = resolveEnabledQueues();
 
-  const startPromises: Array<Promise<unknown>> = [];
+  const plannedWorkers: Array<{ name: string; control: QueueWorkerControl }> = [];
 
   if (enabledQueues.has('generation')) {
-    const queue = getGenerationQueue();
-    startPromises.push(queue.waitUntilReady());
+    plannedWorkers.push({ name: 'generation', control: createGenerationWorker() });
   } else {
     logger.info('Skipping generation queue startup (disabled by WORKER_QUEUES)');
   }
 
   if (enabledQueues.has('mockup')) {
-    const queue = getMockupQueue();
-    startPromises.push(queue.waitUntilReady());
+    plannedWorkers.push({ name: 'mockup', control: createMockupWorker() });
   } else {
     logger.info('Skipping mockup queue startup (disabled by WORKER_QUEUES)');
   }
 
   if (enabledQueues.has('fulfillment')) {
-    const queue = getFulfillmentQueue();
-    startPromises.push(queue.waitUntilReady());
+    plannedWorkers.push({ name: 'fulfillment', control: createFulfillmentWorker() });
   } else {
     logger.info('Skipping fulfillment queue startup (disabled by WORKER_QUEUES)');
   }
 
-  await Promise.all(startPromises);
+  for (const worker of plannedWorkers) {
+    await worker.control.start();
+    activeWorkers.push(worker.control);
+    logger.info({ queue: worker.name }, 'Queue worker started');
+  }
+}
+
+export async function shutdownQueues() {
+  if (activeWorkers.length === 0) {
+    return;
+  }
+
+  const workers = activeWorkers.splice(0, activeWorkers.length);
+  await Promise.all(workers.map((worker) => worker.stop().catch(() => undefined)));
 }
 
 function resolveEnabledQueues() {

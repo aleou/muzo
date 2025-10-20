@@ -1,18 +1,16 @@
-﻿import { Job } from 'bullmq';
-import { GenerationJob } from '@muzo/queue';
+import { JobType } from '@muzo/db';
+import { GenerationJob, QueueJob } from '@muzo/queue';
 import { getGenerationService } from '@muzo/ai';
 import { upsertGenerationResult, updateJob, updateProject } from '@muzo/db';
 import { createLogger } from '../utils/logger';
 
 const logger = createLogger('generation-job');
 
-export async function handleGenerationJob(job: Job<GenerationJob>) {
+export async function handleGenerationJob(job: QueueJob<JobType.GENERATION>) {
   logger.info({ jobId: job.id }, 'Starting generation job');
 
   try {
-    if (typeof job.id === 'string') {
-      await updateJob(job.id, { status: 'RUNNING' });
-    }
+    await updateJob(job.id, { status: 'RUNNING' });
 
     const service = getGenerationService();
     const generationResult = await service.run(job.data);
@@ -26,9 +24,7 @@ export async function handleGenerationJob(job: Job<GenerationJob>) {
       status: 'READY',
     });
 
-    if (typeof job.id === 'string') {
-      await updateJob(job.id, { status: 'DONE', result: generationResult });
-    }
+    await updateJob(job.id, { status: 'DONE', result: generationResult });
 
     logger.info({ jobId: job.id }, 'Generation job completed');
     return generationResult;
@@ -43,9 +39,7 @@ export async function handleGenerationJob(job: Job<GenerationJob>) {
       }
     }
 
-    if (typeof job.id === 'string') {
-      await updateJob(job.id, { status: 'FAILED', result: { message: (error as Error).message } });
-    }
+    await updateJob(job.id, { status: 'FAILED', result: { message: (error as Error).message } });
 
     logger.error({ err: error, jobId: job.id, projectId }, 'Generation job failed');
     throw error;

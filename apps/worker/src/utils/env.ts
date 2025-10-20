@@ -2,7 +2,6 @@ import { z } from 'zod';
 
 // TODO(config): Load schema from packages/config to ensure parity with web/server environments.
 const schema = z.object({
-  REDIS_URL: z.string().url(),
   RUNPOD_API_KEY: z.string().min(1),
   OPENAI_API_KEY: z.string().min(1),
   S3_ACCESS_KEY_ID: z.string().min(1),
@@ -27,7 +26,6 @@ export class WorkerEnvError extends Error {
 
 export function getWorkerEnv(): WorkerEnv {
   const parsed = schema.safeParse({
-    REDIS_URL: process.env.REDIS_URL,
     RUNPOD_API_KEY: process.env.RUNPOD_API_KEY,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     S3_ACCESS_KEY_ID: process.env.S3_ACCESS_KEY_ID,

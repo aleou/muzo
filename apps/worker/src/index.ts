@@ -11,10 +11,29 @@ const logger = createLogger('worker');
 
 async function bootstrap() {
   try {
-    // TODO(queue): Replace local queue bootstrap with packages/queue runner once job definitions are centralised.
-    const { initQueues } = await import('./queues/init');
+    const { initQueues, shutdownQueues } = await import('./queues/init');
     await initQueues();
     logger.info('Worker bootstrapped and listening for jobs');
+
+    let shuttingDown = false;
+    const handleShutdown = async (signal: NodeJS.Signals) => {
+      if (shuttingDown) {
+        return;
+      }
+      shuttingDown = true;
+      logger.info({ signal }, 'Worker received shutdown signal, draining queues');
+      try {
+        await shutdownQueues();
+        logger.info('Queues drained, exiting worker');
+      } catch (error) {
+        logger.error({ err: error }, 'Failed to shutdown queues gracefully');
+      } finally {
+        process.exit(0);
+      }
+    };
+
+    process.once('SIGINT', handleShutdown);
+    process.once('SIGTERM', handleShutdown);
   } catch (error) {
     if (error instanceof WorkerEnvError && process.env.NODE_ENV !== 'production') {
       logger.warn({ issues: error.issues }, 'Worker env invalid, skipping worker startup in development');

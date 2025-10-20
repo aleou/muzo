@@ -1,11 +1,11 @@
-import { Job } from 'bullmq';
-import { FulfillmentJob } from '@muzo/queue';
+import { JobType } from '@muzo/db';
+import { FulfillmentJob, QueueJob } from '@muzo/queue';
 import { getFulfillmentProvider } from '@muzo/fulfillment';
 import { createLogger } from '../utils/logger';
 
 const logger = createLogger('fulfillment-job');
 
-export async function handleFulfillmentJob(job: Job<FulfillmentJob>) {
+export async function handleFulfillmentJob(job: QueueJob<JobType.FULFILLMENT>) {
   logger.info({ jobId: job.id }, 'Starting fulfillment job');
 
   try {

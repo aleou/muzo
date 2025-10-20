@@ -80,10 +80,10 @@ const PROMPT_SUGGESTIONS = [
 const ERROR_MESSAGES: Record<string, string> = {
   image_inspection_failed: "Impossible de lire les metadonnees de cette image. Essayez un PNG ou JPG classique.",
   presign_failed: "Service de stockage temporairement indisponible. Patientez quelques instants.",
-  upload_failed: "L'envoi du fichier vers le stockage a echoue.",
+  upload_failed: "L’envoi du fichier vers le stockage a echoue.",
   project_creation_failed: "Impossible de creer le projet en base de donnees.",
   catalog_failed: "Catalogue produit indisponible actuellement.",
-  product_save_failed: "Impossible d'enregistrer le produit selectionne.",
+  product_save_failed: "Impossible d’enregistrer le produit selectionne.",
   brief_save_failed: "Enregistrement du brief impossible.",
   generation_failed: "La generation a echoue.",
 };
@@ -505,7 +505,7 @@ const handlePreviewLaunch = useCallback(
       const normalizedProject = normalizeProject(payload.project, project);
       setProject(normalizedProject);
       setGenerationStatus(
-        "Preview lancee. Nous vous prevenons des qu'elle est prete pour validation.",
+        "Preview lancee. Nous vous prevenons des qu’elle est prete pour validation.",
       );
       setStepIndex(3);
     } catch (generationError) {
@@ -554,7 +554,7 @@ const handleProductSelection = useCallback(
         setStepIndex(4);
       } catch (productError) {
         console.error(productError);
-        setError(resolveFriendlyMessage(productError, "Impossible d'enregistrer la selection produit."));
+        setError(resolveFriendlyMessage(productError, "Impossible d’enregistrer la selection produit."));
       } finally {
         setLoading(false);
       }
@@ -602,7 +602,7 @@ const handleProductSelection = useCallback(
         nextProjectId = normalizedProject.id;
       } catch (briefError) {
         console.error(briefError);
-        setError(resolveFriendlyMessage(briefError, "Impossible d'enregistrer le brief."));
+        setError(resolveFriendlyMessage(briefError, "Impossible d’enregistrer le brief."));
       } finally {
         setLoading(false);
       }
@@ -826,19 +826,19 @@ const handleProductSelection = useCallback(
             <CardHeader>
               <CardTitle>Votre preview</CardTitle>
               <CardDescription>
-                Comparez la photo d'origine et le rendu IA. Le mockup produit arrivera apres validation.
+                Comparez la photo d’origine et le rendu IA. Le mockup produit arrivera apres validation.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <p className="text-xs uppercase text-slate-400">Photo d'origine</p>
+                  <p className="text-xs uppercase text-slate-400">Photo d’origine</p>
                   <div className="overflow-hidden rounded-lg border border-slate-700">
                     {originalPhotoSrc ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={originalPhotoSrc}
-                        alt="Photo d'origine"
+                        alt="Photo d’origine"
                         className="h-full w-full object-cover"
                         onError={() => {
                           if (!useLocalPreviewFallback && localPreviewUrl) {
@@ -857,7 +857,7 @@ const handleProductSelection = useCallback(
                 <div className="space-y-2">
                   <p className="text-xs uppercase text-slate-400">Preview IA</p>
                   <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-700 bg-slate-900/50 p-6 text-sm text-slate-400">
-                    La preview sera visible ici des qu'elle est prete.
+                    La preview sera visible ici des qu’elle est prete.
                   </div>
                 </div>
               </div>
@@ -882,7 +882,7 @@ const handleProductSelection = useCallback(
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-slate-300">
-                Nous vous enverrons un email avec la preview finale ainsi qu'un lien direct vers la caisse. Vous pouvez fermer cette page, nous vous
+                Nous vous enverrons un email avec la preview finale ainsi qu’un lien direct vers la caisse. Vous pouvez fermer cette page, nous vous
                 guiderons pour la suite.
               </p>
               <div className="rounded-md border border-slate-700 bg-slate-900/60 p-4 text-sm text-slate-300">
@@ -890,7 +890,7 @@ const handleProductSelection = useCallback(
                 <ul className="mt-2 list-disc space-y-1 pl-5">
                   <li>Recevez la preview et le mockup produit par email.</li>
                   <li>Validez ou demandez une retouche.</li>
-                  <li>Passez en caisse et suivez l'expedition en temps reel.</li>
+                  <li>Passez en caisse et suivez l’expedition en temps reel.</li>
                 </ul>
               </div>
             </CardContent>

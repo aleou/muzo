@@ -1,14 +1,21 @@
-import type { WorkerOptions } from 'bullmq';
+import { JobType } from '@muzo/db';
+import { createQueueWorker } from '@muzo/queue';
 import { handleGenerationJob } from '../jobs/generation';
-import { ensureQueue } from './queue-factory';
+import { createLogger } from '../utils/logger';
 
-const QUEUE_NAME = 'generation';
+export function createGenerationWorker() {
+  const concurrency = resolveConcurrency(process.env.GENERATION_WORKER_CONCURRENCY);
+  const logger = createLogger('generation-worker');
 
-export function getGenerationQueue() {
-  const concurrency = Number(process.env.GENERATION_WORKER_CONCURRENCY ?? '1');
-  const workerOptions: WorkerOptions = {
-    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 1,
-  };
+  return createQueueWorker({
+    type: JobType.GENERATION,
+    handler: handleGenerationJob,
+    concurrency,
+    logger,
+  });
+}
 
-  return ensureQueue(QUEUE_NAME, handleGenerationJob, workerOptions);
+function resolveConcurrency(rawValue: string | undefined) {
+  const parsed = Number(rawValue ?? '1');
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 1;
 }

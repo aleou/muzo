@@ -7,10 +7,10 @@ MUZO permet à un utilisateur de transformer une photo personnelle en illustrati
 ## 2. Architecture globale
 
 - Interface utilisateur et API en Next.js (App Router) hébergés sur Vercel.
-- Worker Node.js indépendant orchestrant BullMQ pour les tâches asynchrones (génération, mockup, fulfilment).
+- Worker Node.js independant consomme une file MongoDB pour les taches asynchrones (generation, mockup, fulfillment).
 - Base de données MongoDB Atlas administrée via Prisma (provider Mongo).
 - Stockage médias S3 avec uploads directs via URL pré-signée.
-- File d'attente Redis (Upstash) pour BullMQ.
+- File MongoDB interne pour la coordination des jobs worker.
 - Paiement Stripe Checkout et webhooks pour synchroniser les commandes.
 - Fournisseurs POD abstraits via un module FulfillmentProvider (Printful, Printify).
 - Observabilité avec Sentry et Logtail (hooks prévus dans le worker et le web).
@@ -18,9 +18,9 @@ MUZO permet à un utilisateur de transformer une photo personnelle en illustrati
 ## 3. Répartition monorepo
 
 apps/web - Next.js App Router, UI et API publiques
-apps/worker - Worker Node.js (BullMQ) pour les tâches longues
+apps/worker - Worker Node.js (queue MongoDB) pour les taches longues
 packages/db - Prisma, accès MongoDB, repositories
-packages/queue - Définitions de payloads et helpers BullMQ
+packages/queue - Definition des payloads et moteur de queue MongoDB
 packages/fulfillment - Abstraction Printful/Printify et intégrations HTTP
 packages/ai - SDK interne pour RunPod et outils IA
 config - Configs partagées à compléter
@@ -39,8 +39,8 @@ docs - Documentation technique et produit
 
 ### 4.2 Worker (apps/worker)
 
-- File d'attente BullMQ avec trois queues : generation, mockup, fulfillment.
-- Chaque queue crée un Worker dédié qui consomme les jobs et se connecte à Redis Upstash.
+- File MongoDB avec trois types de jobs : generation, mockup, fulfillment.
+- Chaque type de job dispose d un worker dedie qui recupere les documents MongoDB en utilisant les verrous lockedAt/lockedUntil.
 - Orchestration RunPod via package @muzo/ai pour lancer la génération et gérer l'upscaling.
 - Pipeline médias : récupération S3, upscaling (StableDiffusion, Real-ESRGAN), conversion 300 DPI via Sharp (à implémenter).
 - Fulfillment : construction de la commande, appel API fournisseur, suivi du statut via webhooks.
@@ -70,7 +70,7 @@ docs - Documentation technique et produit
 ## 5. Flux utilisateur (MVP)
 
 1. Upload d'une image via l'URL pré-signée S3, création d'un Asset.
-2. Création d'un Project avec style et prompt, création d'un Job generation et push dans BullMQ.
+2. Création d'un Project avec style et prompt, création d'un Job generation enregistre dans la file MongoDB.
 3. Worker consomme le job, appelle RunPod, stocke le rendu final sur S3 et met à jour Project.status.
 4. L'utilisateur choisit un produit, déclenche Stripe Checkout via POST api/checkout.
 5. Webhook Stripe payment_intent.succeeded, création Order et Job fulfillment.
@@ -83,7 +83,7 @@ docs - Documentation technique et produit
 - Style : nom, prompts, presets (sd model, cfg, steps, exemples visuels).
 - Project : image d'entrée, style, prompt, statut (draft, generating, ready, failed), outputs.
 - Order : relation user et project, provider, produit, prix, statut (created, paid, sent, fulfilled, failed).
-- Job : type (generation, mockup, fulfillment), statut, payload JSON, résultat JSON.
+- Job : type (generation, mockup, fulfillment), statut, payload/result JSON, verrous (lockedAt/lockedUntil), attempts, availableAt.
 - Asset : type (input, output, mockup), s3Key, métadonnées (dimensions, dpi, profil colorimétrique).
 
 ## 7. Endpoints essentiels
@@ -102,7 +102,7 @@ docs - Documentation technique et produit
 - Vérifier les dimensions minimums et DPI avant génération.
 - Anonymiser les données sensibles, appliquer RGPD (opt-in, purge utilisateur sur demande, DPA avec Stripe et fournisseurs).
 - Signer toutes les requêtes webhooks et vérifier les signatures Stripe et Printful.
-- Mettre en place du rate limiting sur les actions critiques (Upstash Ratelimit).
+- Mettre en place du rate limiting sur les actions critiques (MongoDB RateLimitWindow).
 - Gestion des secrets via Vercel, Doppler ou AWS Secrets Manager suivant l'environnement.
 
 ## 9. Observabilité et qualité
@@ -120,7 +120,7 @@ Sprint 1 - Base produit (MVP génératif)
 - Authentification NextAuth et Mongo.
 - Upload S3 pré-signé et stockage Asset.
 - Pages Studio (upload, style, prompt), galerie et détail Project.
-- Queue Upstash et worker Dockerisé.
+- Queue MongoDB interne et worker containerisable.
 - Intégration RunPod (génération, upscaling, métadonnées).
 
 Sprint 2 - Paiement et POD

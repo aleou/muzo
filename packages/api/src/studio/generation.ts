@@ -1,7 +1,6 @@
-import { Queue } from 'bullmq';
-import { Prisma, ProjectStatus } from '@prisma/client';
+import { Prisma, ProjectStatus, JobType } from '@prisma/client';
 import { prisma } from '@muzo/db';
-import { GenerationJob, createRedisConnectionOptions, isRedisRateLimitError } from '@muzo/queue';
+import { GenerationJob, enqueueJob } from '@muzo/queue';
 import { z } from 'zod';
 import { hasFreePreviewAvailable } from './projects';
 
@@ -10,26 +9,6 @@ const requestGenerationSchema = z.object({
   userId: z.string().min(1),
   stage: z.enum(['preview', 'final']).default('preview'),
 });
-
-let generationQueue: Queue<GenerationJob> | null = null;
-
-function getGenerationQueue() {
-  if (generationQueue) {
-    return generationQueue;
-  }
-
-  const redisUrl = process.env.REDIS_URL;
-
-  if (!redisUrl) {
-    throw new Error('REDIS_URL is not defined');
-  }
-
-  generationQueue = new Queue<GenerationJob>('generation', {
-    connection: createRedisConnectionOptions(redisUrl),
-  });
-
-  return generationQueue;
-}
 
 function buildGenerationPayload(params: {
   project: {
@@ -131,13 +110,10 @@ export async function requestProjectGeneration(input: unknown) {
         },
       });
 
-      const jobRecord = await tx.job.create({
-        data: {
-          type: 'GENERATION',
-          status: 'PENDING',
-          payload: generationJobPayload,
-          projectId: updatedProject.id,
-        },
+      const jobRecord = await enqueueJob(tx, {
+        type: JobType.GENERATION,
+        payload: generationJobPayload,
+        projectId: updatedProject.id,
       });
 
       return { project: updatedProject, jobRecord };
@@ -162,23 +138,6 @@ export async function requestProjectGeneration(input: unknown) {
 
   if (!result) {
     throw new Error('Generation request failed without result');
-  }
-
-  const queue = getGenerationQueue();
-
-  try {
-    await queue.add('generation', generationJobPayload, {
-      jobId: result.jobRecord.id,
-      removeOnComplete: true,
-      removeOnFail: false,
-    });
-  } catch (error) {
-    if (isRedisRateLimitError(error)) {
-      console.warn('[studio] Redis rate limit reached when enqueuing generation job');
-      throw new Error('Le service est temporairement sature. Merci de reessayer dans quelques minutes.');
-    }
-
-    throw error;
   }
 
   return {
@@ -231,13 +190,10 @@ async function requestProjectGenerationWithoutReplicaSet(params: {
     where: { id: params.project.id },
   });
 
-  const jobRecord = await prisma.job.create({
-    data: {
-      type: 'GENERATION',
-      status: 'PENDING',
-      payload: params.generationJobPayload,
-      projectId: params.project.id,
-    },
+  const jobRecord = await enqueueJob(prisma, {
+    type: JobType.GENERATION,
+    payload: params.generationJobPayload,
+    projectId: params.project.id,
   });
 
   return { project: updatedProject, jobRecord };

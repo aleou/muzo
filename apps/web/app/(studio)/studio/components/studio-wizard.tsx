@@ -292,7 +292,11 @@ function normalizeProject(raw: unknown, previous: Project | null): Project {
     id: resolvedId || fallback.id,
     title: typeof source.title === "string" ? source.title : fallback.title,
     inputImageUrl:
-      typeof source.inputImageUrl === "string" ? source.inputImageUrl : fallback.inputImageUrl,
+      typeof source.signedInputImageUrl === "string"
+        ? source.signedInputImageUrl
+        : typeof source.inputImageUrl === "string"
+        ? source.inputImageUrl
+        : fallback.inputImageUrl,
     promptText:
       typeof source.promptText === "string" ? source.promptText : fallback.promptText,
     status: typeof source.status === "string" ? source.status : fallback.status,
@@ -312,10 +316,16 @@ function normalizeAsset(raw: unknown, previous: Asset | null): Asset | null {
   const fallback = previous ?? { id: "", url: "" };
 
   const resolvedId = extractObjectId(source.id);
+  const signedUrl =
+    typeof source.signedUrl === "string"
+      ? source.signedUrl
+      : typeof source.url === "string"
+      ? source.url
+      : fallback.url;
 
   return {
     id: resolvedId || fallback.id,
-    url: typeof source.url === "string" ? source.url : fallback.url,
+    url: signedUrl,
   };
 }
 
@@ -334,6 +344,40 @@ export function StudioWizard({ styles }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generationStatus, setGenerationStatus] = useState("");
+  const canNavigateBackward = stepIndex > 0;
+
+  const goToStep = useCallback(
+    (target: number, options: { allowForward?: boolean } = {}) => {
+      setStepIndex((current) => {
+        if (target < 0 || target >= WORKFLOW_STEPS.length) {
+          return current;
+        }
+
+        if (target === current) {
+          return current;
+        }
+
+        if (!options.allowForward && target > current) {
+          return current;
+        }
+
+        return target;
+      });
+
+      if (target <= stepIndex) {
+        setError(null);
+      }
+    },
+    [setError, stepIndex],
+  );
+
+  const handleStepBack = useCallback(() => {
+    if (!canNavigateBackward) {
+      return;
+    }
+
+    goToStep(stepIndex - 1);
+  }, [canNavigateBackward, goToStep, stepIndex]);
 
   const currentStep = WORKFLOW_STEPS[stepIndex];
   const originalPhotoSrc = useLocalPreviewFallback
@@ -504,10 +548,7 @@ const handlePreviewLaunch = useCallback(
       const payload = await response.json();
       const normalizedProject = normalizeProject(payload.project, project);
       setProject(normalizedProject);
-      setGenerationStatus(
-        "Preview lancee. Nous vous prevenons des qu’elle est prete pour validation.",
-      );
-      setStepIndex(3);
+      setGenerationStatus("Preview lancee. Nous vous prevenons des qu’elle est prete pour validation.");
     } catch (generationError) {
       console.error(generationError);
       setGenerationStatus("");
@@ -624,10 +665,28 @@ const handleProductSelection = useCallback(
           return (
             <Card
               key={item.key}
+              role={isDone ? "button" : undefined}
+              tabIndex={isDone ? 0 : undefined}
+              onClick={() => {
+                if (isDone && !loading) {
+                  goToStep(index);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (!isDone || loading) {
+                  return;
+                }
+
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  goToStep(index);
+                }
+              }}
               className={cn(
                 "border-slate-800 bg-slate-900/80",
                 isActive && "border-violet-500",
-                isDone && !isActive && "border-emerald-400/60",
+                isDone && !isActive && "border-emerald-400/60 hover:border-emerald-300/60",
+                isDone && !loading ? "cursor-pointer" : "cursor-default",
               )}
             >
               <CardHeader className="space-y-1">
@@ -654,6 +713,14 @@ const handleProductSelection = useCallback(
       </aside>
 
       <div className="space-y-6">
+        {canNavigateBackward ? (
+          <div className="flex justify-end">
+            <Button variant="ghost" onClick={handleStepBack} disabled={loading}>
+              &lt; Retour à l&apos;étape précédente
+            </Button>
+          </div>
+        ) : null}
+
         {error ? (
           <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>
         ) : null}
@@ -862,11 +929,20 @@ const handleProductSelection = useCallback(
                 </div>
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>{generationStatus ? <p className="text-sm text-emerald-300">{generationStatus}</p> : null}</div>
-                <Button onClick={handlePreviewLaunch} disabled={loading}>
-                  Lancer la generation gratuite
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={handlePreviewLaunch} disabled={loading}>
+                    Lancer la generation gratuite
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => goToStep(3, { allowForward: true })}
+                    disabled={project?.status !== "READY"}
+                  >
+                    Choisir un produit
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -900,4 +976,3 @@ const handleProductSelection = useCallback(
     </div>
   );
 }
-

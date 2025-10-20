@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { auth } from '@/auth';
-import { buildPublicS3Url, getS3Client } from '@/lib/s3';
+import { buildPublicS3Url, getS3Client, getSignedS3ObjectUrl } from '@/lib/s3';
 import { getServerEnv } from '@/lib/server-env';
 import { consumeUploadRateLimit } from '@/lib/rate-limit';
 
@@ -69,6 +69,7 @@ export async function POST(request: Request) {
   });
 
   const uploadUrl = await getSignedUrl(client, command, { expiresIn: 60 });
+  const signedUrl = await getSignedS3ObjectUrl(key, { expiresIn: 3600 });
 
   return NextResponse.json(
     {
@@ -79,6 +80,7 @@ export async function POST(request: Request) {
       },
       key,
       publicUrl: buildPublicS3Url(key),
+      signedUrl,
       expiresIn: 60,
     },
     {

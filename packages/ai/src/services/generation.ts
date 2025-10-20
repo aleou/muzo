@@ -1,6 +1,8 @@
-import OpenAI from 'openai';
+import axios from 'axios';
+import type { Readable } from 'node:stream';
+import OpenAI, { toFile } from 'openai';
 import { z } from 'zod';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { GenerationRequest, GenerationResponse, generationRequestSchema } from '../types';
 import { getRunpodUpscaleService } from './runpod';
 
@@ -34,8 +36,14 @@ type StoredImage = {
     width: number;
     height: number;
     format: string;
+    s3Key?: string;
   };
   buffer?: Buffer;
+};
+
+type ReferenceImage = {
+  buffer: Buffer;
+  mimeType: string;
 };
 
 let cachedEnv: ServerEnv | null = null;
@@ -179,30 +187,214 @@ async function uploadToS3(buffer: Buffer, key: string, format: string): Promise<
       Key: key,
       Body: buffer,
       ContentType: contentType,
+      ACL: 'public-read',
     }),
   );
 
   return buildPublicS3Url(key, env);
 }
 
-async function generateImages(request: GenerationRequest, options: ImageOptions): Promise<StoredImage[]> {
+function resolveS3KeyFromUrl(url: string, env: ServerEnv): string | null {
+  try {
+    const parsed = new URL(url);
+    const cleanPath = (value: string) => value.replace(/^\/+/, '');
+    const decode = (value: string) => {
+      try {
+        return decodeURIComponent(value);
+      } catch {
+        return value;
+      }
+    };
+
+    if (env.S3_ENDPOINT) {
+      const endpoint = new URL(env.S3_ENDPOINT);
+      const endpointHost = endpoint.hostname;
+      const virtualHost = `${env.S3_BUCKET}.${endpointHost}`;
+
+      if (parsed.hostname === endpointHost) {
+        const path = cleanPath(parsed.pathname);
+        if (path.startsWith(`${env.S3_BUCKET}/`)) {
+          return decode(path.slice(env.S3_BUCKET.length + 1));
+        }
+        return decode(path);
+      }
+
+      if (parsed.hostname === virtualHost) {
+        return decode(cleanPath(parsed.pathname));
+      }
+    }
+
+    const awsVirtualHost = `${env.S3_BUCKET}.s3.${env.S3_REGION}.amazonaws.com`;
+    if (parsed.hostname === awsVirtualHost) {
+      return decode(cleanPath(parsed.pathname));
+    }
+
+    const genericPath = cleanPath(parsed.pathname);
+    if (genericPath.startsWith(`${env.S3_BUCKET}/`)) {
+      return decode(genericPath.slice(env.S3_BUCKET.length + 1));
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function streamToBuffer(body: unknown): Promise<Buffer> {
+  if (!body) {
+    return Buffer.alloc(0);
+  }
+
+  if (typeof (body as { transformToByteArray?: () => Promise<Uint8Array> }).transformToByteArray === 'function') {
+    const bytes = await (body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray();
+    return Buffer.from(bytes);
+  }
+
+  if (body instanceof Uint8Array) {
+    return Buffer.from(body);
+  }
+
+  if (typeof (body as { arrayBuffer?: () => Promise<ArrayBuffer> }).arrayBuffer === 'function') {
+    const arrayBuffer = await (body as { arrayBuffer: () => Promise<ArrayBuffer> }).arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  const readable = body as Readable;
+  return new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    readable.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+    readable.once('end', () => resolve(Buffer.concat(chunks)));
+    readable.once('error', (error) => reject(error));
+  });
+}
+
+function guessMimeTypeFromKey(key: string): string {
+  const extensionMatch = /\.([a-z0-9]{1,8})$/i.exec(key);
+  const extension = extensionMatch ? extensionMatch[1].toLowerCase() : null;
+
+  switch (extension) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'webp':
+      return 'image/webp';
+    case 'gif':
+      return 'image/gif';
+    case 'png':
+    default:
+      return 'image/png';
+  }
+}
+
+function guessExtensionFromMime(mimeType: string): string {
+  switch (mimeType.toLowerCase()) {
+    case 'image/jpeg':
+    case 'image/jpg':
+      return 'jpg';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    case 'image/png':
+    default:
+      return 'png';
+  }
+}
+
+async function fetchReferenceImage(url: string): Promise<ReferenceImage | null> {
+  const env = getEnv();
+  const key = resolveS3KeyFromUrl(url, env);
+
+  if (key) {
+    try {
+      const object = await getS3Client().send(
+        new GetObjectCommand({
+          Bucket: env.S3_BUCKET,
+          Key: key,
+        }),
+      );
+
+      const buffer = await streamToBuffer(object.Body);
+      const mimeType = object.ContentType ?? guessMimeTypeFromKey(key);
+
+      if (buffer.length > 0) {
+        return {
+          buffer,
+          mimeType,
+        };
+      }
+    } catch (s3Error) {
+      console.warn('[ai] Failed to fetch reference image from S3', {
+        key,
+        bucket: env.S3_BUCKET,
+        error: s3Error,
+      });
+    }
+  }
+
+  try {
+    const response = await axios.get<ArrayBuffer>(url, { responseType: 'arraybuffer' });
+    const rawMime = response.headers['content-type'];
+    const mimeType = typeof rawMime === 'string' && rawMime.trim().length > 0 ? rawMime.split(';')[0].trim() : 'image/png';
+    const buffer = Buffer.from(response.data);
+
+    return {
+      buffer,
+      mimeType,
+    };
+  } catch (error) {
+    let maskedUrl = url;
+
+    try {
+      const parsed = new URL(url);
+      maskedUrl = `${parsed.origin}${parsed.pathname}`;
+    } catch {
+      // ignore masking failures
+    }
+
+    console.warn('[ai] Failed to fetch reference image for generation', { url: maskedUrl, error });
+    return null;
+  }
+}
+
+async function generateImages(
+  request: GenerationRequest,
+  options: ImageOptions,
+  referenceImage?: ReferenceImage | null,
+): Promise<StoredImage[]> {
   const client = getOpenAIClient();
   const prompt = buildPrompt(request);
   const { width, height } = parseSize(options.size);
+  const useReference = !!referenceImage && referenceImage.buffer.length > 0;
 
-  const response = await client.images.generate({
-    model: 'gpt-image-1',
-    prompt,
-    quality: options.quality,
-    size: options.size,
-    background: options.background,
-    output_format: options.format,
-    moderation: options.moderation,
-    n: options.n,
-    partial_images: options.partialImages,
-    input_fidelity: options.inputFidelity,
-    user: request.projectId,
-  });
+  const response = useReference
+    ? await client.images.edit({
+        model: 'gpt-image-1',
+        prompt,
+        image: await toFile(referenceImage.buffer, `reference.${guessExtensionFromMime(referenceImage.mimeType)}`, {
+          type: referenceImage.mimeType,
+        }),
+        background: options.background,
+        input_fidelity: options.inputFidelity,
+        output_format: options.format,
+        quality: options.quality,
+        size: options.size,
+        n: options.n,
+        partial_images: options.partialImages,
+        user: request.projectId,
+      })
+    : await client.images.generate({
+        model: 'gpt-image-1',
+        prompt,
+        quality: options.quality,
+        size: options.size,
+        background: options.background,
+        output_format: options.format,
+        moderation: options.moderation,
+        n: options.n,
+        partial_images: options.partialImages,
+        user: request.projectId,
+      });
 
   const images = response.data ?? [];
   return images.map((image, index) => {
@@ -243,13 +435,19 @@ async function storeImages(projectId: string, stage: 'preview' | 'final', images
       const url = await uploadToS3(image.buffer, key, image.metadata.format);
       return {
         url,
-        metadata: image.metadata,
+        metadata: {
+          ...image.metadata,
+          s3Key: key,
+        },
       };
     }),
   );
 }
 
-async function runPreviewGeneration(request: GenerationRequest): Promise<GenerationResponse> {
+async function runPreviewGeneration(
+  request: GenerationRequest,
+  referenceImage?: ReferenceImage | null,
+): Promise<GenerationResponse> {
   const options: ImageOptions = {
     stage: 'preview',
     quality: request.parameters?.quality ?? 'medium',
@@ -262,7 +460,7 @@ async function runPreviewGeneration(request: GenerationRequest): Promise<Generat
     inputFidelity: request.parameters?.inputFidelity,
   };
 
-  const generated = await generateImages(request, options);
+  const generated = await generateImages(request, options, referenceImage);
   const stored = await storeImages(request.projectId, 'preview', generated);
 
   return {
@@ -271,7 +469,10 @@ async function runPreviewGeneration(request: GenerationRequest): Promise<Generat
   };
 }
 
-async function runFinalGeneration(request: GenerationRequest): Promise<GenerationResponse> {
+async function runFinalGeneration(
+  request: GenerationRequest,
+  referenceImage?: ReferenceImage | null,
+): Promise<GenerationResponse> {
   const options: ImageOptions = {
     stage: 'final',
     quality: request.parameters?.quality ?? 'high',
@@ -284,7 +485,7 @@ async function runFinalGeneration(request: GenerationRequest): Promise<Generatio
     inputFidelity: request.parameters?.inputFidelity,
   };
 
-  const generated = await generateImages(request, options);
+  const generated = await generateImages(request, options, referenceImage);
 
   const shouldUpscale = request.parameters?.upscale ?? { target: '4k', provider: 'runpod' };
   const upscaleTarget = shouldUpscale.target ?? '4k';
@@ -319,7 +520,10 @@ async function runFinalGeneration(request: GenerationRequest): Promise<Generatio
           const url = await uploadToS3(buffer, baseKey, response.metadata.format);
           return {
             url,
-            metadata: response.metadata,
+            metadata: {
+              ...response.metadata,
+              s3Key: baseKey,
+            },
           } satisfies StoredImage;
         }
 
@@ -334,13 +538,19 @@ async function runFinalGeneration(request: GenerationRequest): Promise<Generatio
         const url = await uploadToS3(image.buffer, baseKey, image.metadata.format);
         return {
           url,
-          metadata: image.metadata,
+          metadata: {
+            ...image.metadata,
+            s3Key: baseKey,
+          },
         } satisfies StoredImage;
       } catch (error) {
         const url = await uploadToS3(image.buffer, baseKey, image.metadata.format);
         return {
           url,
-          metadata: image.metadata,
+          metadata: {
+            ...image.metadata,
+            s3Key: baseKey,
+          },
         } satisfies StoredImage;
       }
     }),
@@ -357,13 +567,13 @@ export function getGenerationService() {
     async run(payload: unknown) {
       const request = generationRequestSchema.parse(payload);
       const stage = request.parameters?.stage ?? 'preview';
+      const referenceImage = await fetchReferenceImage(request.inputImageUrl);
 
       if (stage === 'final') {
-        return runFinalGeneration(request);
+        return runFinalGeneration(request, referenceImage);
       }
 
-      return runPreviewGeneration(request);
+      return runPreviewGeneration(request, referenceImage);
     },
   };
 }
-

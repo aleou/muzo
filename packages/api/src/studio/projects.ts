@@ -174,18 +174,15 @@ export async function createProjectFromUpload(input: unknown) {
       const project = await tx.project.create({ data: projectData });
       return { project, asset };
     });
-  } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2031'
-    ) {
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2031') {
       console.warn(
         '[studio] Transaction fallback triggered; MongoDB replica set not available.',
       );
       return await createProjectAndAssetWithoutReplicaSet(assetData, projectData);
     }
 
-    throw error;
+    throw err;
   }
 }
 
@@ -520,7 +517,7 @@ async function updateProjectBriefWithoutReplicaSet(params: {
         ],
         multi: false,
       },
-    ],
+    ] as any,
   });
 
   return prisma.project.findUniqueOrThrow({
@@ -562,8 +559,15 @@ const productSelectionSchema = z.object({
 
 export type SaveProjectProductSelectionInput = z.infer<typeof productSelectionSchema>;
 
-export async function saveProjectProductSelection(input: unknown) {
-  const payload = productSelectionSchema.parse(input);
+export async function saveProjectProductSelection(input: unknown): Promise<any> {
+  const payload = productSelectionSchema.parse(input) as {
+    projectId: string;
+    userId: string;
+    provider?: Provider;
+    productId?: string;
+    productVariantId?: string;
+    productOptions?: Record<string, unknown>;
+  };
 
   const data: Record<string, unknown> = {
     productId: payload.productId ?? null,

@@ -676,6 +676,85 @@ export function StudioWizard({
     setGenerationStatus("");
   }, [project?.status, previewImages.length]);
 
+  // Auto-polling when generation is in progress
+  useEffect(() => {
+    if (!project?.id || project.status !== "GENERATING") {
+      return;
+    }
+
+    let cancelled = false;
+    let pollCount = 0;
+    const maxPolls = 120; // 10 minutes max (120 * 5 seconds)
+
+    const poll = async () => {
+      if (cancelled || pollCount >= maxPolls) {
+        if (pollCount >= maxPolls) {
+          setGenerationStatus("La generation prend plus de temps que prevu. Essayez de rafraichir.");
+        }
+        return;
+      }
+
+      pollCount++;
+
+      try {
+        const response = await fetch(`/api/studio/projects/${project.id}`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          console.error("Polling failed:", response.status);
+          return;
+        }
+
+        const payload = await response.json();
+        
+        if (cancelled) {
+          return;
+        }
+
+        const normalizedProject = normalizeProject(payload.project, project);
+        setProject(normalizedProject);
+        syncPreviewImages(normalizedProject);
+
+        // Update status message
+        if (normalizedProject.status === "GENERATING") {
+          const messages = [
+            "Generation en cours... Preparation du modele IA",
+            "Generation en cours... Analyse de votre image",
+            "Generation en cours... Creation de la preview",
+            "Generation en cours... Finalisation"
+          ];
+          const messageIndex = Math.min(Math.floor(pollCount / 5), messages.length - 1);
+          setGenerationStatus(messages[messageIndex]);
+        } else if (normalizedProject.status === "READY") {
+          setGenerationStatus("Preview prete ! Consultez le resultat ci-dessous.");
+        } else if (normalizedProject.status === "FAILED") {
+          setGenerationStatus("La generation a echoue. Vous pouvez reessayer.");
+        }
+
+        // Continue polling if still generating
+        if (normalizedProject.status === "GENERATING" && !cancelled) {
+          setTimeout(poll, 5000); // Poll every 5 seconds
+        }
+      } catch (error) {
+        console.error("Polling error:", error);
+        if (!cancelled && pollCount < maxPolls) {
+          setTimeout(poll, 5000);
+        }
+      }
+    };
+
+    // Start polling after initial delay
+    const timeoutId = setTimeout(poll, 3000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [project?.id, project?.status, syncPreviewImages]);
+
   useEffect(() => {
     if (stepIndex < 3 || products.length > 0 || !project) {
       return;
@@ -1226,7 +1305,22 @@ export function StudioWizard({
 
                 <div className="space-y-3">
                   <p className="text-xs uppercase tracking-wide text-slate-400">Previews IA</p>
-                  {previewImages.length > 0 ? (
+                  {project.status === "GENERATING" ? (
+                    <div className="flex h-full min-h-[320px] flex-col items-center justify-center gap-4 rounded-xl border border-violet-500/40 bg-gradient-to-br from-slate-900/90 to-violet-900/20 p-8 text-center">
+                      <div className="relative">
+                        <Loader2 className="h-16 w-16 animate-spin text-violet-400" aria-hidden="true" />
+                        <div className="absolute inset-0 animate-pulse rounded-full bg-violet-500/20 blur-xl" />
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-base font-semibold text-slate-100">Generation en cours...</p>
+                        <p className="max-w-xs text-sm text-slate-400">{generationStatus}</p>
+                      </div>
+                      <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+                        <div className="h-2 w-2 animate-pulse rounded-full bg-violet-400" />
+                        <span>L'IA travaille sur votre creation</span>
+                      </div>
+                    </div>
+                  ) : previewImages.length > 0 ? (
                     <div className="space-y-4">
                       <div className="relative overflow-hidden rounded-xl border border-violet-500/40 bg-slate-950/40">
                         <Image
@@ -1276,16 +1370,39 @@ export function StudioWizard({
 
               <div className="flex flex-col gap-3 border-t border-slate-800 pt-4 md:flex-row md:items-center md:justify-between">
                 <div className="text-sm text-slate-300">
-                  <p className="flex items-center gap-2 font-semibold text-slate-100">
-                    Etat: <span>{project.status}</span>
-                  </p>
-                  {generationStatus ? <p className="text-xs text-slate-500">{generationStatus}</p> : null}
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-slate-100">Etat:</p>
+                    {project.status === "GENERATING" && (
+                      <Badge className="border-sky-400/60 bg-sky-500/10 text-sky-200">
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        En cours
+                      </Badge>
+                    )}
+                    {project.status === "READY" && (
+                      <Badge className="border-emerald-400/60 bg-emerald-500/10 text-emerald-200">
+                        Pret
+                      </Badge>
+                    )}
+                    {project.status === "FAILED" && (
+                      <Badge className="border-rose-400/60 bg-rose-500/10 text-rose-200">
+                        Echoue
+                      </Badge>
+                    )}
+                    {project.status === "DRAFT" && (
+                      <Badge className="border-amber-400/60 bg-amber-500/10 text-amber-200">
+                        Brouillon
+                      </Badge>
+                    )}
+                  </div>
+                  {generationStatus ? (
+                    <p className="mt-1 text-xs text-slate-500">{generationStatus}</p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="secondary"
                     onClick={handlePreviewRefresh}
-                    disabled={isRefreshingPreview || !project?.id}
+                    disabled={isRefreshingPreview || !project?.id || project.status === "GENERATING"}
                     className="gap-2"
                   >
                     {isRefreshingPreview ? (
@@ -1297,7 +1414,11 @@ export function StudioWizard({
                       "Actualiser les previews"
                     )}
                   </Button>
-                  <Button onClick={() => handlePreviewLaunch()} disabled={isLaunchingPreview} className="gap-2">
+                  <Button
+                    onClick={() => handlePreviewLaunch()}
+                    disabled={isLaunchingPreview || project.status === "GENERATING"}
+                    className="gap-2"
+                  >
                     {isLaunchingPreview ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

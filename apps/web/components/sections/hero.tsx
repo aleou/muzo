@@ -11,7 +11,7 @@ export function HeroSection() {
           Transformez votre photo en puzzle, poster ou mug pret a offrir.
         </h1>
         <p className="max-w-xl text-lg text-slate-300">
-          Chargez une image, l&apos;IA MUZO nettoie le cadrage, rehausse la definition en 300 DPI puis nous imprimons sur le support de votre choix. Aucun abonnement, vous payez uniquement le produit imprime et expedie.
+          Chargez une image,definissez votre style, l&apos;IA MUZO nettoie le cadrage, rehausse la definition puis nous imprimons sur le support de votre choix. Aucun abonnement, vous payez uniquement le produit imprime et expedie.
         </p>
         <div className="flex flex-wrap gap-4">
           <Button href="/studio">Je cree mon produit</Button>

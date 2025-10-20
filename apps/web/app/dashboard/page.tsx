@@ -1,6 +1,7 @@
 ﻿import Image from 'next/image';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import { ArrowRight, Eye } from 'lucide-react';
 import { auth } from '@/auth';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
@@ -12,14 +13,6 @@ export const metadata: Metadata = {
   title: 'Espace client',
   description: "Suivez vos creations IA et vos commandes MUZO en un coup d'oeil.",
 };
-
-function formatCurrency(amount: number, currency: string) {
-  try {
-    return new Intl.NumberFormat('fr-FR', { style: 'currency', currency }).format(amount);
-  } catch (error) {
-    return `${amount.toFixed(2)} ${currency}`;
-  }
-}
 
 function formatDate(value: Date) {
   return new Intl.DateTimeFormat('fr-FR', {
@@ -60,6 +53,32 @@ function getStatusTone(status: string) {
   }
 }
 
+function getProjectStatusMeta(status: string) {
+  switch (status) {
+    case 'READY':
+      return {
+        label: 'Finalise',
+        badgeClass: 'border-emerald-400/60 bg-emerald-500/10 text-emerald-200',
+      };
+    case 'GENERATING':
+      return {
+        label: 'Generation',
+        badgeClass: 'border-sky-400/60 bg-sky-500/10 text-sky-200',
+      };
+    case 'FAILED':
+      return {
+        label: 'En erreur',
+        badgeClass: 'border-rose-400/60 bg-rose-500/10 text-rose-200',
+      };
+    case 'DRAFT':
+    default:
+      return {
+        label: 'Non finalise',
+        badgeClass: 'border-amber-400/60 bg-amber-500/10 text-amber-200',
+      };
+  }
+}
+
 export default async function DashboardPage() {
   const session = await auth();
 
@@ -94,16 +113,17 @@ export default async function DashboardPage() {
     url: string;
     createdAt: Date;
     projectTitle: string;
+    projectId: string;
+    projectStatus: string;
   };
 
   const totalOutputs = projects.reduce(
     (total: number, project: ProjectWithOutputs) => total + project.outputs.length,
     0,
   );
-  const totalRevenue = orders.reduce(
-    (total: number, order: OrderWithProject) => total + (order.price ?? 0),
-    0,
-  );
+  const activeProjects = projects.filter(
+    (project) => project.status !== 'READY' && project.status !== 'FAILED',
+  ).length;
 
   const latestOutputs: ProjectGalleryItem[] = projects
     .flatMap<ProjectGalleryItem>((project: ProjectWithOutputs) =>
@@ -112,6 +132,8 @@ export default async function DashboardPage() {
         url: output.url,
         createdAt: output.createdAt instanceof Date ? output.createdAt : new Date(output.createdAt),
         projectTitle: project.title,
+        projectId: project.id,
+        projectStatus: project.status,
       })),
     )
     .sort((a: ProjectGalleryItem, b: ProjectGalleryItem) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -140,22 +162,20 @@ export default async function DashboardPage() {
       </header>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <Card>
+        <Card className="border-slate-800 bg-slate-900/70 shadow-lg">
           <CardTitle>Creations IA</CardTitle>
           <p className="mt-4 text-3xl font-semibold">{totalOutputs}</p>
           <CardDescription>Nombre total de visuels generes via MUZO.</CardDescription>
         </Card>
-        <Card>
+        <Card className="border-slate-800 bg-slate-900/70 shadow-lg">
           <CardTitle>Commandes</CardTitle>
           <p className="mt-4 text-3xl font-semibold">{orders.length}</p>
           <CardDescription>Resume de vos commandes passes et en cours.</CardDescription>
         </Card>
-        <Card>
-          <CardTitle>Chiffre d&apos;affaires</CardTitle>
-          <p className="mt-4 text-3xl font-semibold">
-            {orders.length > 0 ? formatCurrency(totalRevenue, orders[0].currency) : '0,00 EUR'}
-          </p>
-          <CardDescription>Total cumule sur vos ventes traitees.</CardDescription>
+        <Card className="border-slate-800 bg-slate-900/70 shadow-lg">
+          <CardTitle>Projets actifs</CardTitle>
+          <p className="mt-4 text-3xl font-semibold">{activeProjects}</p>
+          <CardDescription>Creations en cours de brief, de generation ou en attente de validation.</CardDescription>
         </Card>
       </section>
 
@@ -178,24 +198,59 @@ export default async function DashboardPage() {
           </Card>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {latestOutputs.map((output) => (
-              <Card key={output.id} className="overflow-hidden p-0">
-                <div className="relative h-48 w-full">
-                  <Image
-                    src={output.url}
-                    alt={`Creation du projet ${output.projectTitle}`}
-                    fill
-                    className="object-cover"
-                  />
-                </div>
-                <div className="p-4">
-                  <CardTitle className="text-lg">{output.projectTitle}</CardTitle>
-                  <CardDescription className="mt-1 text-xs uppercase tracking-wide text-slate-500">
-                    {formatDate(output.createdAt)}
-                  </CardDescription>
-                </div>
-              </Card>
-            ))}
+            {latestOutputs.map((output) => {
+              const statusMeta = getProjectStatusMeta(output.projectStatus);
+
+              return (
+                <Card
+                  key={output.id}
+                  className="group overflow-hidden border-slate-800 bg-slate-900/70 p-0 shadow-lg transition-transform duration-300 hover:-translate-y-1 hover:shadow-violet-500/10"
+                >
+                  <div className="relative h-48 w-full overflow-hidden">
+                    <Image
+                      src={output.url}
+                      alt={`Creation du projet ${output.projectTitle}`}
+                      fill
+                      className="object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                    <Badge
+                      className={cn(
+                        'absolute left-3 top-3 border border-white/10 bg-slate-900/80 text-[11px] uppercase tracking-widest text-slate-100 shadow',
+                        statusMeta.badgeClass,
+                      )}
+                    >
+                      {statusMeta.label}
+                    </Badge>
+                  </div>
+                  <div className="flex flex-col gap-4 p-4">
+                    <div>
+                      <CardTitle className="text-lg">{output.projectTitle}</CardTitle>
+                      <CardDescription className="mt-1 text-xs uppercase tracking-wide text-slate-500">
+                        {formatDate(output.createdAt)}
+                      </CardDescription>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="secondary"
+                        href={`/studio?projectId=${output.projectId}`}
+                        className="gap-2 px-3 py-2 text-xs"
+                      >
+                        Reprendre
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        href={output.url}
+                        className="gap-2 px-3 py-2 text-xs text-slate-300 hover:text-slate-100"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        Apercu
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
           </div>
         )}
       </section>

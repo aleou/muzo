@@ -1,6 +1,8 @@
-﻿"use client";
+"use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { AlertTriangle, Loader2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,17 +22,25 @@ type Project = {
   id: string;
   title: string;
   inputImageUrl: string;
+  signedInputImageUrl?: string;
   promptText: string;
   status: string;
   previewCount: number;
   productProvider?: string | null;
   productId?: string | null;
   productVariantId?: string | null;
+  previews?: PreviewImage[];
 };
 
 type Asset = {
   id: string;
   url: string;
+};
+
+type PreviewImage = {
+  id: string;
+  url: string;
+  createdAt: string;
 };
 
 type StudioProduct = {
@@ -50,6 +60,10 @@ type StudioProduct = {
 
 type Props = {
   styles: StyleOption[];
+  initialProject?: Project | null;
+  initialAsset?: Asset | null;
+  initialPreviews?: PreviewImage[];
+  initialStepIndex?: number;
 };
 
 type StepKey = "upload" | "brief" | "preview" | "product" | "checkout";
@@ -77,15 +91,150 @@ const PROMPT_SUGGESTIONS = [
   "Arriere-plan flou",
 ];
 
+type NotificationItem = {
+  id: string;
+  message: string;
+};
+
+type NotificationTrayProps = {
+  items: NotificationItem[];
+  onDismiss: (id: string) => void;
+};
+
+function NotificationTray({ items, onDismiss }: NotificationTrayProps) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="pointer-events-none fixed right-6 top-28 z-50 flex w-72 flex-col gap-3">
+      {items.map((notification) => (
+        <div
+          key={notification.id}
+          className="pointer-events-auto overflow-hidden rounded-xl border border-rose-500/30 bg-slate-900/95 shadow-2xl shadow-rose-500/20"
+        >
+          <div className="flex items-start gap-3 p-4">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-500/20 text-rose-200">
+              <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+            </div>
+            <div className="flex-1 text-sm text-slate-100">{notification.message}</div>
+            <button
+              type="button"
+              onClick={() => onDismiss(notification.id)}
+              className="text-slate-400 transition hover:text-slate-100"
+              aria-label="Fermer la notification"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type WorkflowStepsProps = {
+  steps: Step[];
+  currentStepIndex: number;
+  loading: boolean;
+  onSelect: (index: number) => void;
+};
+
+function WorkflowSteps({ steps, currentStepIndex, loading, onSelect }: WorkflowStepsProps) {
+  return (
+    <aside className="space-y-4">
+      {steps.map((item, index) => {
+        const isActive = index === currentStepIndex;
+        const isDone = index < currentStepIndex;
+
+        return (
+          <Card
+            key={item.key}
+            role={isDone ? "button" : undefined}
+            tabIndex={isDone ? 0 : undefined}
+            onClick={() => {
+              if (isDone && !loading) {
+                onSelect(index);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (!isDone || loading) {
+                return;
+              }
+
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelect(index);
+              }
+            }}
+            className={cn(
+              "border-slate-800 bg-slate-900/80",
+              isActive && "border-violet-500",
+              isDone && !isActive && "border-emerald-400/60 hover:border-emerald-300/60",
+              isDone && !loading ? "cursor-pointer" : "cursor-default",
+            )}
+          >
+            <CardHeader className="space-y-1">
+              <div className="flex items-center gap-3 text-sm font-semibold text-slate-200">
+                <span
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded-full border text-xs",
+                    isDone
+                      ? "border-emerald-400 text-emerald-300"
+                      : isActive
+                      ? "border-violet-400 text-violet-300"
+                      : "border-slate-600 text-slate-400",
+                  )}
+                >
+                  {index + 1}
+                </span>
+                {item.title}
+              </div>
+              <CardDescription className="text-xs text-slate-400">{item.description}</CardDescription>
+            </CardHeader>
+          </Card>
+        );
+      })}
+    </aside>
+  );
+}
+
+type LoadingAction = "upload" | "brief" | "product" | "preview" | "refresh";
+
+function deriveInitialStep(project: Project | null | undefined): number {
+  if (!project) {
+    return 0;
+  }
+
+  if (project.status === "READY") {
+    return 3;
+  }
+
+  if (project.status === "GENERATING") {
+    return 2;
+  }
+
+  if (project.status === "FAILED") {
+    return 2;
+  }
+
+  if (project.previewCount > 0) {
+    return 2;
+  }
+
+  return 1;
+}
+
 const ERROR_MESSAGES: Record<string, string> = {
   image_inspection_failed: "Impossible de lire les metadonnees de cette image. Essayez un PNG ou JPG classique.",
   presign_failed: "Service de stockage temporairement indisponible. Patientez quelques instants.",
-  upload_failed: "L’envoi du fichier vers le stockage a echoue.",
+  upload_failed: "L'envoi du fichier vers le stockage a echoue.",
   project_creation_failed: "Impossible de creer le projet en base de donnees.",
   catalog_failed: "Catalogue produit indisponible actuellement.",
-  product_save_failed: "Impossible d’enregistrer le produit selectionne.",
+  product_save_failed: "Impossible d'enregistrer le produit selectionne.",
   brief_save_failed: "Enregistrement du brief impossible.",
   generation_failed: "La generation a echoue.",
+  project_refresh_failed: "Mise a jour des previews impossible.",
 };
 
 async function raiseResponseError(code: string, response: Response): Promise<never> {
@@ -258,18 +407,56 @@ function coercePreviewCount(value: unknown, fallback: number): number {
   return fallback;
 }
 
+function normalizePreviews(raw: unknown, fallback: PreviewImage[] = []): PreviewImage[] {
+  if (!Array.isArray(raw)) {
+    return fallback;
+  }
+
+  const previews: PreviewImage[] = [];
+
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const source = entry as Record<string, unknown>;
+    const id = extractObjectId(source.id) ?? Math.random().toString(36).slice(2);
+    const url =
+      typeof source.signedUrl === "string"
+        ? source.signedUrl
+        : typeof source.url === "string"
+        ? source.url
+        : "";
+
+    if (!url) {
+      continue;
+    }
+
+    const createdAt =
+      typeof source.createdAt === "string"
+        ? source.createdAt
+        : new Date().toISOString();
+
+    previews.push({ id, url, createdAt });
+  }
+
+  return previews.length > 0 ? previews : fallback;
+}
+
 function normalizeProject(raw: unknown, previous: Project | null): Project {
   const source = (raw ?? {}) as Record<string, unknown>;
   const fallback: Project = previous ?? {
     id: "",
     title: "",
     inputImageUrl: "",
+    signedInputImageUrl: undefined,
     promptText: "",
     status: "",
     previewCount: 0,
     productProvider: null,
     productId: null,
     productVariantId: null,
+    previews: [],
   };
 
   const resolvedId = extractObjectId(source.id);
@@ -292,11 +479,13 @@ function normalizeProject(raw: unknown, previous: Project | null): Project {
     id: resolvedId || fallback.id,
     title: typeof source.title === "string" ? source.title : fallback.title,
     inputImageUrl:
-      typeof source.signedInputImageUrl === "string"
-        ? source.signedInputImageUrl
-        : typeof source.inputImageUrl === "string"
+      typeof source.inputImageUrl === "string"
         ? source.inputImageUrl
         : fallback.inputImageUrl,
+    signedInputImageUrl:
+      typeof source.signedInputImageUrl === "string"
+        ? source.signedInputImageUrl
+        : fallback.signedInputImageUrl,
     promptText:
       typeof source.promptText === "string" ? source.promptText : fallback.promptText,
     status: typeof source.status === "string" ? source.status : fallback.status,
@@ -304,6 +493,7 @@ function normalizeProject(raw: unknown, previous: Project | null): Project {
     productProvider,
     productId: resolvedProductId ?? null,
     productVariantId: resolvedProductVariantId ?? null,
+    previews: normalizePreviews(source.previews, fallback.previews ?? []),
   };
 }
 
@@ -329,22 +519,81 @@ function normalizeAsset(raw: unknown, previous: Asset | null): Asset | null {
   };
 }
 
-export function StudioWizard({ styles }: Props) {
-  const [stepIndex, setStepIndex] = useState(0);
-  const [project, setProject] = useState<Project | null>(null);
-  const [asset, setAsset] = useState<Asset | null>(null);
+export function StudioWizard({
+  styles,
+  initialProject = null,
+  initialAsset = null,
+  initialPreviews = [],
+  initialStepIndex,
+}: Props) {
+  const defaultStep = initialStepIndex ?? deriveInitialStep(initialProject);
+
+  const [stepIndex, setStepIndex] = useState(defaultStep);
+  const [project, setProject] = useState<Project | null>(initialProject);
+  const [asset, setAsset] = useState<Asset | null>(
+    initialAsset ?? (initialProject?.signedInputImageUrl || initialProject?.inputImageUrl
+      ? { id: initialProject.id, url: initialProject.signedInputImageUrl || initialProject.inputImageUrl }
+      : null),
+  );
+  const [previewImages, setPreviewImages] = useState<PreviewImage[]>(
+    initialPreviews.length > 0 ? initialPreviews : initialProject?.previews ?? [],
+  );
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
   const [useLocalPreviewFallback, setUseLocalPreviewFallback] = useState(false);
   const [products, setProducts] = useState<StudioProduct[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedVariantId, setSelectedVariantId] = useState("");
   const [selectedStyleId, setSelectedStyleId] = useState("");
-  const [title, setTitle] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [title, setTitle] = useState(initialProject?.title ?? "");
+  const [prompt, setPrompt] = useState(initialProject?.promptText ?? "");
+  const [loadingAction, setLoadingAction] = useState<LoadingAction | null>(null);
   const [generationStatus, setGenerationStatus] = useState("");
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const canNavigateBackward = stepIndex > 0;
+
+  const isBusy = loadingAction !== null;
+  const isUploading = loadingAction === "upload";
+  const isSavingProduct = loadingAction === "product";
+  const isSavingBrief = loadingAction === "brief";
+  const isLaunchingPreview = loadingAction === "preview";
+  const isRefreshingPreview = loadingAction === "refresh";
+  const loadingMessages: Record<LoadingAction, string> = {
+    upload: "Import du fichier en cours...",
+    brief: "Sauvegarde du brief...",
+    product: "Enregistrement du produit...",
+    preview: "Generation de la preview...",
+    refresh: "Actualisation des previews...",
+  };
+  const activeLoadingMessage = loadingAction ? loadingMessages[loadingAction] : null;
+
+  const syncPreviewImages = useCallback((incoming: Project) => {
+    if (Array.isArray(incoming.previews)) {
+      setPreviewImages(incoming.previews);
+    }
+  }, []);
+
+  const pushNotification = useCallback((message: string) => {
+    const id = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+    setNotifications((previous) => [...previous, { id, message }]);
+    setTimeout(() => {
+      setNotifications((previous) => previous.filter((item) => item.id !== id));
+    }, 5000);
+  }, []);
+
+  const dismissNotification = useCallback((id: string) => {
+    setNotifications((previous) => previous.filter((item) => item.id !== id));
+  }, []);
+
+  const clearError = useCallback(() => {
+    // intentionally left blank – legacy hook retained for API compatibility
+  }, []);
+
+  const showError = useCallback(
+    (message: string) => {
+      pushNotification(message);
+    },
+    [pushNotification],
+  );
 
   const goToStep = useCallback(
     (target: number, options: { allowForward?: boolean } = {}) => {
@@ -365,10 +614,10 @@ export function StudioWizard({ styles }: Props) {
       });
 
       if (target <= stepIndex) {
-        setError(null);
+        clearError();
       }
     },
-    [setError, stepIndex],
+    [clearError, stepIndex],
   );
 
   const handleStepBack = useCallback(() => {
@@ -381,8 +630,8 @@ export function StudioWizard({ styles }: Props) {
 
   const currentStep = WORKFLOW_STEPS[stepIndex];
   const originalPhotoSrc = useLocalPreviewFallback
-    ? localPreviewUrl ?? asset?.url ?? ""
-    : asset?.url ?? localPreviewUrl ?? "";
+    ? localPreviewUrl ?? asset?.url ?? project?.signedInputImageUrl ?? project?.inputImageUrl ?? ""
+    : asset?.url ?? localPreviewUrl ?? project?.signedInputImageUrl ?? project?.inputImageUrl ?? "";
 
   useEffect(() => {
     return () => {
@@ -397,6 +646,35 @@ export function StudioWizard({ styles }: Props) {
       setUseLocalPreviewFallback(false);
     }
   }, [asset?.id, asset?.url]);
+
+  useEffect(() => {
+    if (!project) {
+      setGenerationStatus("");
+      return;
+    }
+
+    if (project.status === "GENERATING") {
+      setGenerationStatus("Generation en cours...");
+      return;
+    }
+
+    if (project.status === "FAILED") {
+      setGenerationStatus("La derniere generation a echoue.");
+      return;
+    }
+
+    if (project.status === "READY" && previewImages.length > 0) {
+      setGenerationStatus("Previews pretes a etre consultees.");
+      return;
+    }
+
+    if (project.status === "DRAFT" && previewImages.length === 0) {
+      setGenerationStatus("Aucune preview disponible pour le moment.");
+      return;
+    }
+
+    setGenerationStatus("");
+  }, [project?.status, previewImages.length]);
 
   useEffect(() => {
     if (stepIndex < 3 || products.length > 0 || !project) {
@@ -419,7 +697,7 @@ export function StudioWizard({ styles }: Props) {
       } catch (catalogError) {
         console.error(catalogError);
         if (!cancelled) {
-          setError(resolveFriendlyMessage(catalogError, "Catalogue produit indisponible."));
+          showError(resolveFriendlyMessage(catalogError, "Catalogue produit indisponible."));
         }
       }
     }
@@ -429,7 +707,7 @@ export function StudioWizard({ styles }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [stepIndex, products.length, project]);
+  }, [stepIndex, products.length, project, showError]);
 
   const currentProduct = useMemo(() => {
     if (!selectedProductId) {
@@ -456,8 +734,8 @@ export function StudioWizard({ styles }: Props) {
       });
       setUseLocalPreviewFallback(true);
 
-      setError(null);
-      setLoading(true);
+      clearError();
+      setLoadingAction("upload");
 
       try {
         const { width, height } = await resolveImageSize(file);
@@ -498,6 +776,7 @@ export function StudioWizard({ styles }: Props) {
         const normalizedProject = normalizeProject(projectPayload.project, null);
         const normalizedAsset = normalizeAsset(projectPayload.asset, null);
         setProject(normalizedProject);
+        syncPreviewImages(normalizedProject);
         setAsset(normalizedAsset);
         setUseLocalPreviewFallback(!normalizedAsset?.url);
         setTitle(normalizedProject.title ?? "");
@@ -508,69 +787,104 @@ export function StudioWizard({ styles }: Props) {
         setStepIndex(1);
       } catch (uploadError) {
         console.error(uploadError);
-        setError(resolveFriendlyMessage(uploadError, "Impossible de traiter cette image. Merci de reessayer."));
+        showError(resolveFriendlyMessage(uploadError, "Impossible de traiter cette image. Merci de reessayer."));
       } finally {
-        setLoading(false);
+        setLoadingAction(null);
       }
     },
-    [],
+    [clearError, showError, syncPreviewImages],
   );
 
-const handlePreviewLaunch = useCallback(
-  async (overrideProjectId?: string) => {
-    const rawProjectId = (overrideProjectId ?? project?.id) as unknown;
-    const targetProjectId =
-      typeof rawProjectId === "string" && rawProjectId.trim().length > 0
-        ? rawProjectId
-        : extractObjectId(rawProjectId);
+  const handlePreviewLaunch = useCallback(
+    async (overrideProjectId?: string) => {
+      const rawProjectId = (overrideProjectId ?? project?.id) as unknown;
+      const targetProjectId =
+        typeof rawProjectId === "string" && rawProjectId.trim().length > 0
+          ? rawProjectId
+          : extractObjectId(rawProjectId);
 
-    if (!targetProjectId) {
-      setError("Aucun projet a generer.");
+      if (!targetProjectId) {
+        showError("Aucun projet a generer.");
+        return;
+      }
+
+      setLoadingAction("preview");
+      clearError();
+      setGenerationStatus("Generation en cours...");
+      setStepIndex(2);
+
+      try {
+        const response = await fetch(`/api/studio/projects/${targetProjectId}/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stage: "preview" }),
+        });
+
+        if (!response.ok) {
+          await raiseResponseError("generation_failed", response);
+        }
+
+        const payload = await response.json();
+        const normalizedProject = normalizeProject(payload.project, project);
+        setProject(normalizedProject);
+        syncPreviewImages(normalizedProject);
+        setGenerationStatus("Preview lancee. Nous vous prevenons des qu'elle est prete pour validation.");
+      } catch (generationError) {
+        console.error(generationError);
+        setGenerationStatus("");
+        showError(resolveFriendlyMessage(generationError, "Impossible de demarrer la generation."));
+      } finally {
+        setLoadingAction((current) => (current === "preview" ? null : current));
+      }
+  },
+  [project, clearError, showError, syncPreviewImages],
+);
+
+  const handlePreviewRefresh = useCallback(async () => {
+    if (!project?.id) {
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    setGenerationStatus("Generation en cours...");
-    setStepIndex(2);
+    setLoadingAction("refresh");
 
     try {
-      const response = await fetch(`/api/studio/projects/${targetProjectId}/generate`, {
-        method: "POST",
+      const response = await fetch(`/api/studio/projects/${project.id}`, {
+        method: "GET",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stage: "preview" }),
+        cache: "no-store",
       });
 
       if (!response.ok) {
-        await raiseResponseError("generation_failed", response);
+        await raiseResponseError("project_refresh_failed", response);
       }
 
       const payload = await response.json();
       const normalizedProject = normalizeProject(payload.project, project);
       setProject(normalizedProject);
-      setGenerationStatus("Preview lancee. Nous vous prevenons des qu’elle est prete pour validation.");
-    } catch (generationError) {
-      console.error(generationError);
-      setGenerationStatus("");
-      setError(resolveFriendlyMessage(generationError, "Impossible de demarrer la generation."));
-    } finally {
-      setLoading(false);
-    }
-  },
-  [project],
-);
+      syncPreviewImages(normalizedProject);
 
-const handleProductSelection = useCallback(
-  async (event: FormEvent<HTMLFormElement>) => {
+      if (typeof payload.statusMessage === "string" && payload.statusMessage.trim().length > 0) {
+        setGenerationStatus(payload.statusMessage);
+      }
+    } catch (refreshError) {
+      console.error(refreshError);
+      showError(resolveFriendlyMessage(refreshError, "Mise a jour des previews impossible."));
+    } finally {
+      setLoadingAction((current) => (current === "refresh" ? null : current));
+    }
+  }, [project, showError, syncPreviewImages]);
+
+  const handleProductSelection = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
 
       if (!project || !selectedProductId || !selectedVariantId) {
-        setError("Selectionnez un produit et une variante pour continuer.");
+        showError("Selectionnez un produit et une variante pour continuer.");
         return;
       }
 
-      setError(null);
-      setLoading(true);
+      clearError();
+      setLoadingAction("product");
 
       try {
         const product = products.find((item) => item.productId === selectedProductId);
@@ -592,16 +906,17 @@ const handleProductSelection = useCallback(
         const payload = await response.json();
         const normalizedProject = normalizeProject(payload.project, project);
         setProject(normalizedProject);
+        syncPreviewImages(normalizedProject);
         setStepIndex(4);
       } catch (productError) {
         console.error(productError);
-        setError(resolveFriendlyMessage(productError, "Impossible d’enregistrer la selection produit."));
+        showError(resolveFriendlyMessage(productError, "Impossible d'enregistrer la selection produit."));
       } finally {
-        setLoading(false);
+        setLoadingAction((current) => (current === "product" ? null : current));
       }
-  },
-  [project, products, selectedProductId, selectedVariantId],
-);
+    },
+    [project, products, selectedProductId, selectedVariantId, clearError, showError, syncPreviewImages],
+  );
 
   const handleBriefSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -612,12 +927,12 @@ const handleProductSelection = useCallback(
       }
 
       if (prompt.trim().length === 0) {
-        setError("Ajoutez une description pour guider la generation.");
+        showError("Ajoutez une description pour guider la generation.");
         return;
       }
 
-      setLoading(true);
-      setError(null);
+      setLoadingAction("brief");
+      clearError();
 
       let nextProjectId: string | null = null;
 
@@ -639,94 +954,53 @@ const handleProductSelection = useCallback(
         const payload = await response.json();
         const normalizedProject = normalizeProject(payload.project, project);
         setProject(normalizedProject);
+        syncPreviewImages(normalizedProject);
         setStepIndex(2);
         nextProjectId = normalizedProject.id;
       } catch (briefError) {
         console.error(briefError);
-        setError(resolveFriendlyMessage(briefError, "Impossible d’enregistrer le brief."));
+        showError(resolveFriendlyMessage(briefError, "Impossible d'enregistrer le brief."));
       } finally {
-        setLoading(false);
+        setLoadingAction((current) => (current === "brief" ? null : current));
       }
 
       if (nextProjectId) {
         void handlePreviewLaunch(nextProjectId);
       }
     },
-    [project, prompt, title, selectedStyleId, handlePreviewLaunch],
+    [project, prompt, title, selectedStyleId, handlePreviewLaunch, clearError, showError, syncPreviewImages],
   );
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[260px_1fr]">
-      <aside className="space-y-4">
-        {WORKFLOW_STEPS.map((item, index) => {
-          const isActive = index === stepIndex;
-          const isDone = index < stepIndex;
+    <>
+      <NotificationTray items={notifications} onDismiss={dismissNotification} />
+      {activeLoadingMessage ? (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-start justify-center bg-slate-950/25 backdrop-blur-sm">
+          <div className="mt-28 flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/80 px-4 py-2 text-sm text-slate-200 shadow-xl">
+            <Loader2 className="h-4 w-4 animate-spin text-violet-300" aria-hidden="true" />
+            <span>{activeLoadingMessage}</span>
+          </div>
+        </div>
+      ) : null}
 
-          return (
-            <Card
-              key={item.key}
-              role={isDone ? "button" : undefined}
-              tabIndex={isDone ? 0 : undefined}
-              onClick={() => {
-                if (isDone && !loading) {
-                  goToStep(index);
-                }
-              }}
-              onKeyDown={(event) => {
-                if (!isDone || loading) {
-                  return;
-                }
-
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  goToStep(index);
-                }
-              }}
-              className={cn(
-                "border-slate-800 bg-slate-900/80",
-                isActive && "border-violet-500",
-                isDone && !isActive && "border-emerald-400/60 hover:border-emerald-300/60",
-                isDone && !loading ? "cursor-pointer" : "cursor-default",
-              )}
-            >
-              <CardHeader className="space-y-1">
-                <div className="flex items-center gap-3 text-sm font-semibold text-slate-200">
-                  <span
-                    className={cn(
-                      "flex h-6 w-6 items-center justify-center rounded-full border text-xs",
-                      isDone
-                        ? "border-emerald-400 text-emerald-300"
-                        : isActive
-                        ? "border-violet-400 text-violet-300"
-                        : "border-slate-600 text-slate-400",
-                    )}
-                  >
-                    {index + 1}
-                  </span>
-                  {item.title}
-                </div>
-                <CardDescription className="text-xs text-slate-400">{item.description}</CardDescription>
-              </CardHeader>
-            </Card>
-          );
-        })}
-      </aside>
-
-      <div className="space-y-6">
+      <div className="grid gap-8 lg:grid-cols-[260px_1fr]">
+        <WorkflowSteps
+          steps={WORKFLOW_STEPS}
+          currentStepIndex={stepIndex}
+          loading={isBusy}
+          onSelect={goToStep}
+        />
+        <div className="space-y-6">
         {canNavigateBackward ? (
           <div className="flex justify-end">
-            <Button variant="ghost" onClick={handleStepBack} disabled={loading}>
-              &lt; Retour à l&apos;étape précédente
+            <Button variant="ghost" onClick={handleStepBack} disabled={isBusy}>
+              &lt; Retour a l'etape precedente
             </Button>
           </div>
         ) : null}
 
-        {error ? (
-          <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>
-        ) : null}
-
         {currentStep.key === "upload" && (
-          <Card>
+          <Card className="border-slate-800 bg-slate-900/70 shadow-xl">
             <CardHeader>
               <CardTitle>Importez votre photo</CardTitle>
               <CardDescription>
@@ -738,16 +1012,21 @@ const handleProductSelection = useCallback(
                 <p className="text-sm text-slate-300">Glissez-deposez un fichier ou cliquez pour parcourir.</p>
                 <p className="mt-2 text-xs text-slate-500">Nous utiliserons cette image comme reference.</p>
                 <div className="mt-4 flex justify-center">
-                  <Input type="file" accept="image/*" disabled={loading} onChange={handleFileChange} />
+                  <Input type="file" accept="image/*" disabled={isUploading || isBusy} onChange={handleFileChange} />
                 </div>
-                {loading ? <p className="mt-3 text-xs text-violet-300">Chargement en cours...</p> : null}
+                {isUploading ? (
+                  <div className="mt-4 flex items-center justify-center gap-2 text-violet-300">
+                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                    <span className="text-xs uppercase tracking-wide">Import en cours</span>
+                  </div>
+                ) : null}
               </div>
             </CardContent>
           </Card>
         )}
 
         {currentStep.key === "product" && project && (
-          <Card>
+          <Card className="border-slate-800 bg-slate-900/70 shadow-xl">
             <CardHeader>
               <CardTitle>Choisissez un produit</CardTitle>
               <CardDescription>
@@ -765,7 +1044,9 @@ const handleProductSelection = useCallback(
                       selectedProductId === item.productId
                         ? "border-violet-400 bg-violet-500/10"
                         : "border-slate-700 bg-slate-900/60 hover:border-slate-500",
+                      isSavingProduct && selectedProductId !== item.productId && "opacity-60",
                     )}
+                    disabled={isSavingProduct}
                     onClick={() => {
                       setSelectedProductId(item.productId);
                       setSelectedVariantId("");
@@ -788,13 +1069,14 @@ const handleProductSelection = useCallback(
                     className="w-full rounded-md border border-slate-700 bg-slate-900 p-3 text-sm text-slate-100"
                     value={selectedVariantId}
                     onChange={(event) => setSelectedVariantId(event.target.value)}
+                    disabled={isSavingProduct}
                   >
                     <option value="">Selectionnez une variante</option>
                     {currentProduct.variants.map((variant) => (
                       <option key={variant.id} value={variant.id}>
                         {variant.label}
-                        {variant.pieces ? ` • ${variant.pieces} pieces` : ""}
-                        {variant.sizeHint ? ` • ${variant.sizeHint}` : ""}
+                        {variant.pieces ? ` ' ${variant.pieces} pieces` : ""}
+                        {variant.sizeHint ? ` ' ${variant.sizeHint}` : ""}
                       </option>
                     ))}
                   </select>
@@ -803,8 +1085,15 @@ const handleProductSelection = useCallback(
                   </p>
 
                   <div className="flex justify-end">
-                    <Button type="submit" disabled={loading || !selectedVariantId}>
-                      Enregistrer et continuer
+                    <Button type="submit" disabled={isSavingProduct || !selectedVariantId} className="gap-2">
+                      {isSavingProduct ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                          Enregistrement...
+                        </>
+                      ) : (
+                        "Enregistrer et continuer"
+                      )}
                     </Button>
                   </div>
                 </form>
@@ -814,7 +1103,7 @@ const handleProductSelection = useCallback(
         )}
 
         {currentStep.key === "brief" && project && (
-          <Card>
+          <Card className="border-slate-800 bg-slate-900/70 shadow-xl">
             <CardHeader>
               <CardTitle>Composez votre brief</CardTitle>
               <CardDescription>Indiquez les elements clefs pour guider la generation.</CardDescription>
@@ -824,7 +1113,12 @@ const handleProductSelection = useCallback(
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <Label htmlFor="studio-title">Titre du projet</Label>
-                    <Input id="studio-title" value={title} onChange={(event) => setTitle(event.target.value)} />
+                    <Input
+                      id="studio-title"
+                      value={title}
+                      onChange={(event) => setTitle(event.target.value)}
+                      disabled={isSavingBrief}
+                    />
                   </div>
                   <div>
                     <Label htmlFor="studio-style">Style artistique</Label>
@@ -833,6 +1127,7 @@ const handleProductSelection = useCallback(
                       className="w-full rounded-md border border-slate-700 bg-slate-900 p-3 text-sm text-slate-100"
                       value={selectedStyleId}
                       onChange={(event) => setSelectedStyleId(event.target.value)}
+                      disabled={isSavingBrief}
                     >
                       <option value="">Libre</option>
                       {styles.map((style) => (
@@ -851,6 +1146,7 @@ const handleProductSelection = useCallback(
                     rows={7}
                     value={prompt}
                     onChange={(event) => setPrompt(event.target.value)}
+                    disabled={isSavingBrief}
                     placeholder="Decrivez la scene finale, les emotions, les couleurs, le type de rendu..."
                   />
                   <div className="mt-2 space-y-2 text-xs text-slate-400">
@@ -879,8 +1175,15 @@ const handleProductSelection = useCallback(
                 </div>
 
                 <div className="flex justify-end">
-                  <Button type="submit" disabled={loading}>
-                    Enregistrer le brief
+                  <Button type="submit" disabled={isSavingBrief} className="gap-2">
+                    {isSavingBrief ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        Sauvegarde...
+                      </>
+                    ) : (
+                      "Enregistrer le brief"
+                    )}
                   </Button>
                 </div>
               </form>
@@ -888,24 +1191,24 @@ const handleProductSelection = useCallback(
           </Card>
         )}
 
-        {currentStep.key === "preview" && project && asset && (
-          <Card>
+        {currentStep.key === "preview" && project && (
+          <Card className="border-slate-800 bg-slate-900/70 shadow-xl">
             <CardHeader>
-              <CardTitle>Votre preview</CardTitle>
+              <CardTitle>Vos previews</CardTitle>
               <CardDescription>
-                Comparez la photo d’origine et le rendu IA. Le mockup produit arrivera apres validation.
+                Comparez la photo d'origine et les rendus generes. Rafraichissez des qu'une nouvelle preview est disponible.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <p className="text-xs uppercase text-slate-400">Photo d’origine</p>
-                  <div className="overflow-hidden rounded-lg border border-slate-700">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+                <div className="space-y-3">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Photo d'origine</p>
+                  <div className="relative overflow-hidden rounded-xl border border-slate-700 bg-slate-950/40">
                     {originalPhotoSrc ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={originalPhotoSrc}
-                        alt="Photo d’origine"
+                        alt="Photo d'origine"
                         className="h-full w-full object-cover"
                         onError={() => {
                           if (!useLocalPreviewFallback && localPreviewUrl) {
@@ -914,26 +1217,95 @@ const handleProductSelection = useCallback(
                         }}
                       />
                     ) : (
-                      <div className="flex h-full items-center justify-center bg-slate-900/60 p-6 text-sm text-slate-400">
+                      <div className="flex h-64 items-center justify-center text-sm text-slate-400">
                         Apercu indisponible pour le moment.
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <p className="text-xs uppercase text-slate-400">Preview IA</p>
-                  <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-700 bg-slate-900/50 p-6 text-sm text-slate-400">
-                    La preview sera visible ici des qu’elle est prete.
-                  </div>
+                <div className="space-y-3">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Previews IA</p>
+                  {previewImages.length > 0 ? (
+                    <div className="space-y-4">
+                      <div className="relative overflow-hidden rounded-xl border border-violet-500/40 bg-slate-950/40">
+                        <Image
+                          src={previewImages[0].url}
+                          alt={`Preview principale du projet ${project.title}`}
+                          width={900}
+                          height={900}
+                          className="h-full w-full object-cover"
+                        />
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent p-3 text-xs text-slate-200">
+                          Genere le {new Date(previewImages[0].createdAt).toLocaleString("fr-FR")}
+                        </div>
+                      </div>
+                      {previewImages.length > 1 ? (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {previewImages.slice(1).map((preview) => (
+                            <div key={preview.id} className="overflow-hidden rounded-lg border border-slate-700/70 bg-slate-950/40">
+                              <Image
+                                src={preview.url}
+                                alt={`Preview ${preview.id}`}
+                                width={600}
+                                height={600}
+                                className="h-full w-full object-cover"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="flex h-full min-h-[220px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-700 bg-slate-900/50 p-8 text-center text-sm text-slate-400">
+                      <span>Aucune preview disponible pour le moment.</span>
+                      <Button onClick={() => handlePreviewLaunch()} disabled={isLaunchingPreview} className="gap-2">
+                        {isLaunchingPreview ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            Generation...
+                          </>
+                        ) : (
+                          "Lancer une preview"
+                        )}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>{generationStatus ? <p className="text-sm text-emerald-300">{generationStatus}</p> : null}</div>
+              <div className="flex flex-col gap-3 border-t border-slate-800 pt-4 md:flex-row md:items-center md:justify-between">
+                <div className="text-sm text-slate-300">
+                  <p className="flex items-center gap-2 font-semibold text-slate-100">
+                    Etat: <span>{project.status}</span>
+                  </p>
+                  {generationStatus ? <p className="text-xs text-slate-500">{generationStatus}</p> : null}
+                </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button onClick={handlePreviewLaunch} disabled={loading}>
-                    Lancer la generation gratuite
+                  <Button
+                    variant="secondary"
+                    onClick={handlePreviewRefresh}
+                    disabled={isRefreshingPreview || !project?.id}
+                    className="gap-2"
+                  >
+                    {isRefreshingPreview ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        Actualisation...
+                      </>
+                    ) : (
+                      "Actualiser les previews"
+                    )}
+                  </Button>
+                  <Button onClick={() => handlePreviewLaunch()} disabled={isLaunchingPreview} className="gap-2">
+                    {isLaunchingPreview ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        Generation...
+                      </>
+                    ) : (
+                      "Lancer une nouvelle preview"
+                    )}
                   </Button>
                   <Button
                     variant="secondary"
@@ -949,7 +1321,7 @@ const handleProductSelection = useCallback(
         )}
 
         {currentStep.key === "checkout" && project && (
-          <Card>
+          <Card className="border-slate-800 bg-slate-900/70 shadow-xl">
             <CardHeader>
               <CardTitle>Prochaine etape</CardTitle>
               <CardDescription>
@@ -958,7 +1330,7 @@ const handleProductSelection = useCallback(
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-slate-300">
-                Nous vous enverrons un email avec la preview finale ainsi qu’un lien direct vers la caisse. Vous pouvez fermer cette page, nous vous
+                Nous vous enverrons un email avec la preview finale ainsi qu'un lien direct vers la caisse. Vous pouvez fermer cette page, nous vous
                 guiderons pour la suite.
               </p>
               <div className="rounded-md border border-slate-700 bg-slate-900/60 p-4 text-sm text-slate-300">
@@ -966,7 +1338,7 @@ const handleProductSelection = useCallback(
                 <ul className="mt-2 list-disc space-y-1 pl-5">
                   <li>Recevez la preview et le mockup produit par email.</li>
                   <li>Validez ou demandez une retouche.</li>
-                  <li>Passez en caisse et suivez l’expedition en temps reel.</li>
+                  <li>Passez en caisse et suivez l'expedition en temps reel.</li>
                 </ul>
               </div>
             </CardContent>
@@ -974,5 +1346,6 @@ const handleProductSelection = useCallback(
         )}
       </div>
     </div>
+    </>
   );
 }

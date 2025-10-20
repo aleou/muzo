@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import { auth } from '@/auth';
-import { createProjectFromUpload } from '@muzo/api';
+import { createProjectFromUpload, getProjectForStudio } from '@muzo/api';
 import { getSignedS3ObjectUrl } from '@/lib/s3';
 
 export async function POST(request: Request) {
@@ -41,13 +41,19 @@ export async function POST(request: Request) {
           }
         : asset;
 
-    const responseProject = {
+    const enrichedProject = await getProjectForStudio({
+      projectId: result.project.id,
+      userId: session.user.id,
+    });
+
+    const responseProject = enrichedProject ?? {
       ...result.project,
       inputImageUrl: signedAssetUrl ?? result.project.inputImageUrl,
       signedInputImageUrl: signedAssetUrl ?? undefined,
+      previews: [],
     };
 
-    return NextResponse.json({ project: responseProject, asset: responseAsset });
+    return NextResponse.json({ project: responseProject, asset: responseAsset, previews: responseProject.previews ?? [] });
   } catch (error) {
     if (error instanceof ZodError) {
       return NextResponse.json({ error: 'invalid_payload', details: error.flatten() }, { status: 400 });

@@ -68,6 +68,9 @@ importers:
       dotenv:
         specifier: ^16.4.5
         version: 16.6.1
+      lucide-react:
+        specifier: ^0.462.0
+        version: 0.462.0(react@18.3.1)
       next:
         specifier: 14.2.5
         version: 14.2.5(react-dom@18.3.1)(react@18.3.1)
@@ -163,6 +166,12 @@ importers:
 
   packages/api:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.0.0
+        version: 3.896.0
+      '@aws-sdk/s3-request-presigner':
+        specifier: ^3.0.0
+        version: 3.896.0
       '@muzo/ai':
         specifier: workspace:*
         version: link:../ai
@@ -3931,6 +3940,14 @@ packages:
   /lru-cache@10.4.3:
     resolution: {integrity: sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ==}
     dev: true
+
+  /lucide-react@0.462.0(react@18.3.1):
+    resolution: {integrity: sha512-NTL7EbAao9IFtuSivSZgrAh4fZd09Lr+6MTkqIxuHaH2nnYiYIzXPo06cOxHg9wKLdj6LL8TByG4qpePqwgx/g==}
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0-rc
+    dependencies:
+      react: 18.3.1
+    dev: false
 
   /math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}

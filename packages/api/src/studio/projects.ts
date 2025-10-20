@@ -1,6 +1,7 @@
 import { AssetType, ProjectStatus, Provider, Prisma } from '@prisma/client';
 import { prisma } from '@muzo/db';
 import { z } from 'zod';
+import { getSignedS3ObjectUrl, extractS3KeyFromUrl } from '../utils/s3';
 
 const createProjectFromUploadSchema = z.object({
   userId: z.string().min(1),
@@ -12,6 +13,11 @@ const createProjectFromUploadSchema = z.object({
   dpi: z.number().int().positive().optional(),
   sizeBytes: z.number().int().nonnegative().optional(),
   mimeType: z.string().optional(),
+});
+
+const getProjectForStudioSchema = z.object({
+  userId: z.string().min(1),
+  projectId: z.string().min(1),
 });
 
 const defaultPromptText =
@@ -58,6 +64,79 @@ function generateProjectTitle(filename: string) {
 }
 
 export type CreateProjectFromUploadInput = z.infer<typeof createProjectFromUploadSchema>;
+
+export async function getProjectForStudio(input: unknown) {
+  const payload = getProjectForStudioSchema.parse(input);
+
+  const project = await prisma.project.findFirst({
+    where: {
+      id: payload.projectId,
+      userId: payload.userId,
+    },
+    include: {
+      outputs: {
+        orderBy: { createdAt: 'desc' },
+      },
+    },
+  });
+
+  if (!project) {
+    return null;
+  }
+
+  const previews = await Promise.all(
+    project.outputs.map(async (output) => {
+      let signedUrl = output.url;
+
+      // Extract S3 key from URL and generate signed URL
+      const s3Key = extractS3KeyFromUrl(output.url);
+      if (s3Key) {
+        try {
+          signedUrl = await getSignedS3ObjectUrl(s3Key, { expiresIn: 3600 });
+        } catch (error) {
+          console.error('Failed to sign output URL:', error);
+          // Keep original URL as fallback
+        }
+      }
+
+      return {
+        id: output.id,
+        url: signedUrl,
+        createdAt:
+          output.createdAt instanceof Date
+            ? output.createdAt.toISOString()
+            : new Date(output.createdAt ?? Date.now()).toISOString(),
+      };
+    }),
+  );
+
+  // Sign the input image URL as well
+  let signedInputImageUrl = project.inputImageUrl;
+  if (project.inputImageUrl) {
+    const inputKey = extractS3KeyFromUrl(project.inputImageUrl);
+    if (inputKey) {
+      try {
+        signedInputImageUrl = await getSignedS3ObjectUrl(inputKey, { expiresIn: 3600 });
+      } catch (error) {
+        console.error('Failed to sign input image URL:', error);
+        // Keep original URL as fallback
+      }
+    }
+  }
+
+  const { outputs, ...rest } = project;
+
+  return {
+    ...rest,
+    inputImageUrl: project.inputImageUrl,
+    signedInputImageUrl,
+    createdAt:
+      project.createdAt instanceof Date ? project.createdAt.toISOString() : project.createdAt,
+    updatedAt:
+      project.updatedAt instanceof Date ? project.updatedAt.toISOString() : project.updatedAt,
+    previews,
+  };
+}
 
 export async function createProjectFromUpload(input: unknown) {
   const payload = createProjectFromUploadSchema.parse(input);

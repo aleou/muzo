@@ -25,6 +25,15 @@ const providers = [
       const { host } = new URL(url);
       const { server, from } = provider;
 
+      // Extract email from "Name <email>" format or use as-is
+      const fromEmail = from?.includes('<') 
+        ? from.split('<')[1]?.split('>')[0] 
+        : from;
+
+      console.log('[auth] Sending verification email to:', email);
+      console.log('[auth] From:', fromEmail);
+      console.log('[auth] Using Mailjet API key:', server.auth.user);
+
       // Mailjet API uses api.mailjet.com for REST API, not SMTP server
       const result = await fetch('https://api.mailjet.com/v3.1/send', {
         method: 'POST',
@@ -36,7 +45,7 @@ const providers = [
           Messages: [
             {
               From: {
-                Email: from.split('<')[1]?.split('>')[0] || from,
+                Email: fromEmail,
                 Name: 'MUZO',
               },
               To: [
@@ -54,8 +63,12 @@ const providers = [
 
       if (!result.ok) {
         const error = await result.json();
+        console.error('[auth] Mailjet API error:', error);
         throw new Error(`Mailjet API error: ${JSON.stringify(error)}`);
       }
+
+      const responseData = await result.json();
+      console.log('[auth] Email sent successfully:', responseData);
     },
   }),
   ...(config.oauth.google?.clientId && config.oauth.google?.clientSecret

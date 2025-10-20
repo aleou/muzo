@@ -11,8 +11,19 @@ export type RateLimitResult = {
 };
 
 const transactionsEnabled = shouldEnableRateLimitTransactions();
+const isDevelopment = process.env.NODE_ENV === 'development';
 
 export async function consumeUploadRateLimit(userId: string): Promise<RateLimitResult> {
+  // Bypass rate limiting in development to avoid MongoDB transaction issues
+  if (isDevelopment) {
+    return {
+      success: true,
+      limit: UPLOAD_LIMIT,
+      remaining: UPLOAD_LIMIT - 1,
+      reset: Math.ceil(Date.now() / 1000) + UPLOAD_WINDOW_SECONDS,
+    };
+  }
+
   const key = `upload:${userId}`;
   return consumeRateLimit(key, UPLOAD_LIMIT, UPLOAD_WINDOW_SECONDS);
 }
@@ -94,49 +105,33 @@ async function consumeRateLimitWithoutTransactions(params: {
   const { key, limit, windowSeconds, now } = params;
   const windowMs = windowSeconds * 1000;
   const resetAt = new Date(now.getTime() + windowMs);
-  const rawClient = prisma as unknown as {
-    $runCommandRaw?: (command: Record<string, unknown>) => Promise<Record<string, unknown>>;
-  };
-
-  if (typeof rawClient.$runCommandRaw !== 'function') {
-    throw new Error('MongoDB raw command interface not available');
-  }
 
   const existing = await prisma.rateLimitWindow.findUnique({ where: { key } });
 
+  // Check if rate limit exceeded
   if (existing && existing.expiresAt > now && existing.count >= limit) {
     return buildFailureResult(limit, existing);
   }
 
-  if (existing && existing.expiresAt > now) {
-    const increment = await rawClient.$runCommandRaw({
+  // Try to increment if window is still valid and limit not reached
+  if (existing && existing.expiresAt > now && existing.count < limit) {
+    const result = await prisma.$runCommandRaw({
       findAndModify: 'RateLimitWindow',
-      query: {
-        key,
-        expiresAt: { $gt: now },
-        count: { $lt: limit },
-      },
+      query: { key },
       update: {
         $inc: { count: 1 },
         $set: { updatedAt: now },
       },
       new: true,
-    });
+    }) as { value: RateLimitWindowDocument | null };
 
-    const value = (increment.value ?? null) as RateLimitWindowDocument | null;
-
-    if (value) {
-      return buildSuccessResult(limit, value);
-    }
-
-    // If the increment failed because the limit was reached concurrently, fall back to failure using latest state.
-    const latest = await prisma.rateLimitWindow.findUnique({ where: { key } });
-    if (latest) {
-      return buildFailureResult(limit, latest);
+    if (result.value) {
+      return buildSuccessResult(limit, result.value);
     }
   }
 
-  await rawClient.$runCommandRaw({
+  // Reset or create new window - use $runCommandRaw with proper BSON Date
+  await prisma.$runCommandRaw({
     update: 'RateLimitWindow',
     updates: [
       {
@@ -149,16 +144,21 @@ async function consumeRateLimitWithoutTransactions(params: {
             updatedAt: now,
           },
           $setOnInsert: {
-            createdAt: existing?.createdAt ?? now,
+            createdAt: now,
           },
         },
         upsert: true,
-        multi: false,
       },
     ],
   });
 
-  const refreshed = await prisma.rateLimitWindow.findUniqueOrThrow({ where: { key } });
+  // Fetch the updated/created record
+  const refreshed = await prisma.rateLimitWindow.findUnique({ where: { key } });
+  
+  if (!refreshed) {
+    throw new Error('Failed to create rate limit window');
+  }
+
   return buildSuccessResult(limit, refreshed);
 }
 

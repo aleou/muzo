@@ -481,8 +481,8 @@ async function claimJobWithoutReplica(
         u: {
           $set: {
             status: JobStatus.RUNNING,
-            lockedAt,
-            lockedUntil,
+            lockedAt: { $date: lockedAt.toISOString() },
+            lockedUntil: { $date: lockedUntil.toISOString() },
             lockedBy: workerId,
           },
           $inc: { attempts: 1 },

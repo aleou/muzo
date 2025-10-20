@@ -1,6 +1,7 @@
 ﻿import Link from 'next/link';
-import { auth, signOut } from '@/auth';
+import type { Session } from 'next-auth';
 import { Button } from '@/components/ui/button';
+import { handleSignOut } from '@/lib/auth/actions';
 
 const navItems = [
   { label: 'Produits', href: '#catalogues' },
@@ -9,14 +10,13 @@ const navItems = [
   { label: 'Tarifs', href: '#pricing' },
 ];
 
-export async function SiteHeader() {
-  const session = await auth();
-  const isAuthenticated = Boolean(session?.user);
+type SiteHeaderProps = {
+  showLandingNav?: boolean;
+  session: Session | null;
+};
 
-  async function handleSignOut() {
-    'use server';
-    await signOut({ redirectTo: '/' });
-  }
+export function SiteHeader({ showLandingNav = false, session }: SiteHeaderProps) {
+  const isAuthenticated = Boolean(session?.user);
 
   return (
     <header className="flex items-center justify-between border-b border-slate-800/60 pb-6">
@@ -24,13 +24,15 @@ export async function SiteHeader() {
         <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-violet-500 text-white">MZ</span>
         MUZO Studio
       </Link>
-      <nav className="hidden items-center gap-6 text-sm text-slate-300 md:flex">
-        {navItems.map((item) => (
-          <Link key={item.href} href={item.href} className="hover:text-white">
-            {item.label}
-          </Link>
-        ))}
-      </nav>
+      {showLandingNav && (
+        <nav className="hidden items-center gap-6 text-sm text-slate-300 md:flex">
+          {navItems.map((item) => (
+            <Link key={item.href} href={item.href} className="hover:text-white">
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+      )}
       <div className="flex items-center gap-3">
         {isAuthenticated ? (
           <Button variant="ghost" href="/dashboard" className="hidden md:inline-flex">

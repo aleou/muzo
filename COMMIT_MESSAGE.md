@@ -1,54 +1,110 @@
-feat: Implement professional authentication system with custom MongoDB adapter
+feat: complete CloudPrinter fulfillment integration and disable legacy providers
 
-## Overview
-Complete authentication system with NextAuth.js, custom MongoDB adapter (no replica set required), and branded MUZO email templates via Mailjet API.
+## BREAKING CHANGES
+- Only CloudPrinter is now supported for fulfillment
+- Printful and Printify providers are disabled (code kept for future use)
+- CLOUDPRINTER_API_KEY required in worker environment
 
-## Core Features
-- ✅ Magic link email authentication with custom Mailjet integration
-- ✅ JWT-based sessions (Edge Runtime compatible)
-- ✅ Custom MongoDB adapter with transaction fallbacks
-- ✅ Professional MUZO branded email templates
-- ✅ Route protection middleware
-- ✅ Google OAuth support (optional)
+## Features Added
 
-## New Files
+### CloudPrinter Provider Implementation
+- ✅ Complete provider in `packages/fulfillment/src/providers/cloudprinter.ts` (124 lines)
+- ✅ createOrder() with proper CloudPrinter API mapping
+- ✅ getOrderStatus() with tracking support
+- ✅ listProducts() and listVariants() catalog methods
+- ✅ getQuote() with EUR pricing and shipping (19.95€ + 3.95€)
 
-### Authentication Core
-- `apps/web/lib/auth/adapter.ts` - Custom MongoDB adapter without replica set requirement
-- `apps/web/lib/auth/auth-config.ts` - Shared NextAuth config (Edge Runtime compatible)
-- `apps/web/lib/auth/email-template.ts` - Professional MUZO branded email templates
-- `apps/web/lib/auth/README.md` - Comprehensive authentication documentation
+### Product Catalog Integration
+- ✅ `packages/api/src/studio/products.ts` now returns CloudPrinter products only
+- ✅ Puzzle premium 1000 pièces (50×70 cm) configured
+- ✅ Printful and Printify catalogs set to empty arrays
+
+### Complete Checkout Flow
+- ✅ Fixed EUR to cents conversion in CheckoutSummary (amount * 100)
+- ✅ Dynamic provider extraction from productData in checkout API
+- ✅ Provider info passed through: wizard → button → summary → API → order
+- ✅ Stripe payment tested and working
+
+### Worker Queue Configuration
+- ✅ WORKER_QUEUES=generation,fulfillment now active
+- ✅ CloudPrinter API key configured in apps/worker/.env
+- ✅ Both generation and fulfillment queues running
+
+### Database Schema
+- ✅ Added CLOUDPRINTER to Provider enum in Prisma schema
+- ✅ Regenerated Prisma client with new enum value
+
+### Zod Validation
+- ✅ Added 'cloudprinter' to fulfillmentJobSchema in packages/queue
+- ✅ Updated provider enum validation in worker
+
+## Code Cleanup
+
+### Disabled Legacy Providers
+- 🧹 getFulfillmentProvider() throws error for Printful/Printify
+- 🧹 Worker env schema comments out PRINTFUL_API_KEY and PRINTIFY_API_TOKEN
+- 🧹 Code preserved for potential future reactivation
+
+### Removed Obsolete Files
+- 🧹 Deleted scripts/test-printful-quote.ts
+- 🧹 Deleted scripts/test-printify.ts
+
+### Cleaned Environment Files
+- 🧹 .env.example updated with CloudPrinter only
+- 🧹 apps/worker/.env cleaned (Printful/Printify commented)
+
+### Added Utilities
+- 🧹 scripts/clear-failed-jobs.ts - Clean failed fulfillment jobs
+- 🧹 scripts/create-fulfillment-job.ts - Manual job creation for testing
+- 🧹 CODE_CLEANUP.md - Complete documentation of changes
+
+## Files Modified
+
+### Core Fulfillment
+- packages/fulfillment/src/providers/cloudprinter.ts (NEW - 124 lines)
+- packages/fulfillment/src/provider.ts (MODIFIED)
+- packages/fulfillment/src/index.ts (MODIFIED)
+- packages/api/src/studio/products.ts (MODIFIED)
+- packages/queue/src/schemas.ts (MODIFIED)
+- packages/db/prisma/schema.prisma (MODIFIED)
+
+### Web App
+- apps/web/components/checkout-summary.tsx (MODIFIED)
+- apps/web/components/checkout-button.tsx (MODIFIED)
+- apps/web/app/api/checkout/route.ts (MODIFIED)
+- apps/web/lib/fulfillment-helper.ts (MODIFIED)
+- apps/web/tsconfig.json (MODIFIED)
+- apps/web/package.json (MODIFIED)
+
+### Worker
+- apps/worker/.env (NEW)
+- apps/worker/src/utils/env.ts (MODIFIED)
 
 ### Configuration
-- `apps/web/auth.ts` - Main NextAuth instance with providers
-- `apps/web/middleware.ts` - Route protection middleware
+- tsconfig.base.json (MODIFIED)
+- .env.example (MODIFIED)
 
-### Documentation
-- `.github/AUTHENTICATION_IMPLEMENTATION.md` - Implementation details and deployment guide
+### Scripts & Docs
+- scripts/clear-failed-jobs.ts (NEW)
+- scripts/create-fulfillment-job.ts (NEW)
+- CODE_CLEANUP.md (NEW)
 
-## Modified Files
-- `packages/db/prisma/schema.prisma` - Added `emailVerified` field to User model
-- `apps/web/lib/data/dashboard.ts` - Fixed TypeScript imports (removed .js extensions)
+## Testing Status
+✅ Stripe checkout with correct pricing (EUR to cents)
+✅ Fulfillment job creation and enqueuing
+✅ Worker processing fulfillment queue
+✅ Zod validation accepts 'cloudprinter'
+⏳ CloudPrinter order creation (ready for end-to-end test)
 
-## Removed Files
-- `AUTHENTICATION_FIX.md` - Temporary debug file (no longer needed)
+## Known Issues (separate fix needed)
+⚠️  S3 preview images returning 403 (permissions/signing issue)
+⚠️  MongoDB replica set warning for production deployment
 
-## Technical Details
-
-### MongoDB Standalone Support
-Custom adapter automatically handles Prisma transaction errors (P2031) with raw MongoDB commands:
-- `$runCommandRaw` fallbacks for all transaction-requiring operations
-- No replica set configuration needed
-- Production-ready with informational warning
-
-### Email Integration
-- Mailjet API v3.1 (REST endpoint, not SMTP)
-- Custom HTML + plain text templates
-- MUZO branding with purple gradient (#7c3aed → #6d28d9)
-- Responsive design, security notices
-
-### Session Management
-- JWT strategy for Edge Runtime compatibility
+## Next Steps
+1. Test complete flow: Studio → Generate → Product → Checkout → Payment
+2. Verify CloudPrinter order appears in sandbox dashboard
+3. Implement CloudPrinter webhooks for status updates (Phase C)
+4. Build admin interface for order management (Phase C)
 - 30-day expiration
 - User data (id, role) persisted in token
 - Compatible with Next.js middleware

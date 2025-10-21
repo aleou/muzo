@@ -8,6 +8,8 @@ const schema = z.object({
   S3_REGION: z.string().min(1, 'S3 region is required'),
   S3_ENDPOINT: z.string().url().optional(),
   S3_FORCE_PATH_STYLE: z.coerce.boolean().default(false),
+  STRIPE_SECRET_KEY: z.string().min(1, 'Stripe secret key is required'),
+  NEXTAUTH_URL: z.string().url('NEXTAUTH_URL must be a valid URL'),
 });
 
 export type ServerEnv = z.infer<typeof schema>;
@@ -26,6 +28,8 @@ export function getServerEnv(): ServerEnv {
     S3_REGION: process.env.S3_REGION,
     S3_ENDPOINT: process.env.S3_ENDPOINT,
     S3_FORCE_PATH_STYLE: process.env.S3_FORCE_PATH_STYLE,
+    STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL,
   });
 
   if (!parsed.success) {
@@ -35,3 +39,5 @@ export function getServerEnv(): ServerEnv {
   cachedEnv = parsed.data;
   return cachedEnv;
 }
+
+export const serverEnv = getServerEnv();

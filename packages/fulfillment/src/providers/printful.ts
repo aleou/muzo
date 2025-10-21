@@ -57,5 +57,53 @@ export function createPrintfulProvider(): FulfillmentProvider {
         }),
       );
     },
+    async getQuote(productId: string, variantId: string, quantity = 1) {
+      try {
+        const response = await client.post('/orders/estimate-costs', {
+          recipient: {
+            address1: '19 Rue Beaurepaire',
+            city: 'Paris',
+            country_code: 'FR',
+            state_code: '',
+            zip: '75010',
+          },
+          items: [
+            {
+              variant_id: Number(variantId),
+              quantity,
+            },
+          ],
+        });
+
+        const result = response.data.result;
+        const costs = result?.costs;
+        
+        const productPrice = costs?.subtotal ?? 0;
+        const shippingPrice = costs?.shipping ?? 0;
+        const totalPrice = costs?.total ?? 0;
+
+        return {
+          variantId,
+          currency: result?.currency ?? 'EUR',
+          price: productPrice,
+          shipping: shippingPrice,
+          total: totalPrice,
+        };
+      } catch (error) {
+        logger.warn({ error, productId, variantId }, 'Printful quote failed, using fallback pricing');
+        
+        // Fallback pricing based on typical Printful rates
+        const fallbackPrice = productId === '205' ? 29.95 : 19.95; // Puzzle vs Poster
+        const fallbackShipping = 4.95;
+        
+        return {
+          variantId,
+          currency: 'EUR',
+          price: fallbackPrice * quantity,
+          shipping: fallbackShipping,
+          total: fallbackPrice * quantity + fallbackShipping,
+        };
+      }
+    },
   };
 }

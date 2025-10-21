@@ -11,8 +11,10 @@ const schema = z.object({
   S3_ENDPOINT: z.string().url().optional(),
   S3_FORCE_PATH_STYLE: z.coerce.boolean().default(false),
   STRIPE_SECRET_KEY: z.string().min(1),
-  PRINTFUL_API_KEY: z.string().optional(),
-  PRINTIFY_API_KEY: z.string().optional(),
+  CLOUDPRINTER_API_KEY: z.string().optional(),
+  // Printful and Printify are disabled for now
+  // PRINTFUL_API_KEY: z.string().optional(),
+  // PRINTIFY_API_TOKEN: z.string().optional(),
 });
 
 export type WorkerEnv = z.infer<typeof schema>;
@@ -35,8 +37,10 @@ export function getWorkerEnv(): WorkerEnv {
     S3_ENDPOINT: process.env.S3_ENDPOINT,
     S3_FORCE_PATH_STYLE: process.env.S3_FORCE_PATH_STYLE,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
-    PRINTFUL_API_KEY: process.env.PRINTFUL_API_KEY,
-    PRINTIFY_API_KEY: process.env.PRINTIFY_API_KEY,
+    CLOUDPRINTER_API_KEY: process.env.CLOUDPRINTER_API_KEY,
+    // Printful and Printify are disabled for now
+    // PRINTFUL_API_KEY: process.env.PRINTFUL_API_KEY,
+    // PRINTIFY_API_TOKEN: process.env.PRINTIFY_API_TOKEN,
   });
 
   if (!parsed.success) {

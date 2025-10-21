@@ -8,6 +8,8 @@
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@muzo/cloudprinter": "workspace:*",
     "axios": "^1.6.8",
     "pino": "^9.1.0",
     "zod": "^3.23.8"

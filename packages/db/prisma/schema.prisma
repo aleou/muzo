@@ -132,6 +132,7 @@ model Order {
 enum Provider {
   PRINTFUL
   PRINTIFY
+  CLOUDPRINTER
 }
 
 enum OrderStatus {

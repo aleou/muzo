@@ -7,6 +7,9 @@ export type StudioProductVariant = {
   sizeHint?: string;
   pieces?: number;
   dpiRequirement: number;
+  price?: number;
+  shipping?: number;
+  currency?: string;
 };
 
 export type StudioProduct = {
@@ -28,103 +31,36 @@ type CuratedProduct = {
 };
 
 const curatedCatalog: Record<Provider, CuratedProduct[]> = {
-  [Provider.PRINTFUL]: [
+  [Provider.PRINTFUL]: [],  // Désactivé pour le moment
+  [Provider.PRINTIFY]: [],  // Désactivé pour le moment
+  [Provider.CLOUDPRINTER]: [
     {
-      productId: '205',
+      // Real CloudPrinter product ID: Puzzle with box 680x480 mm - 1000 pieces
+      productId: 'puzzle_680x480_mm_1000_pieces',
       name: 'Puzzle photo premium',
       kind: 'puzzle',
-      description: 'Puzzle cartonne finition satinee, ideal pour cadeaux familiaux.',
-      variantIds: ['7511', '7512', '7513'],
+      description: 'Puzzle cartonné 1000 pièces (68×48 cm) avec boîte, idéal pour cadeaux familiaux.',
+      variantIds: ['puzzle_680x480_mm_1000_pieces'],
       fallbackVariants: [
         {
-          id: '7513',
-          label: '1000 pieces (5070 cm)',
+          id: 'puzzle_680x480_mm_1000_pieces',
+          label: '1000 pièces (68×48 cm)',
           pieces: 1000,
-          sizeHint: '5070 cm',
+          sizeHint: '68×48 cm',
           dpiRequirement: 300,
-        },
-        {
-          id: '7512',
-          label: '500 pieces (4050 cm)',
-          pieces: 500,
-          sizeHint: '4050 cm',
-          dpiRequirement: 300,
-        },
-      ],
-    },
-    {
-      productId: '4010',
-      name: 'Poster photo premium',
-      kind: 'poster',
-      description: 'Impression Fine Art sur papier mat 200 g/m2.',
-      variantIds: ['16831', '16835'],
-      fallbackVariants: [
-        {
-          id: '16831',
-          label: '5070 cm',
-          sizeHint: '5070 cm',
-          dpiRequirement: 240,
-        },
-        {
-          id: '16835',
-          label: '70100 cm',
-          sizeHint: '70100 cm',
-          dpiRequirement: 240,
-        },
-      ],
-    },
-  ],
-  [Provider.PRINTIFY]: [
-    {
-      productId: '62',
-      name: 'Puzzle rigide premium',
-      kind: 'puzzle',
-      description: 'Puzzle Printify epaisseur 2 mm, revetement semi-brillant.',
-      variantIds: ['721', '722'],
-      fallbackVariants: [
-        {
-          id: '722',
-          label: '1000 pieces',
-          pieces: 1000,
-          sizeHint: '5070 cm',
-          dpiRequirement: 300,
-        },
-        {
-          id: '721',
-          label: '500 pieces',
-          pieces: 500,
-          sizeHint: '4050 cm',
-          dpiRequirement: 300,
-        },
-      ],
-    },
-    {
-      productId: '22',
-      name: 'Poster satine',
-      kind: 'poster',
-      description: 'Poster satine 210 g/m2 avec couleurs vives.',
-      variantIds: ['2011', '2013'],
-      fallbackVariants: [
-        {
-          id: '2011',
-          label: '5070 cm',
-          sizeHint: '5070 cm',
-          dpiRequirement: 210,
-        },
-        {
-          id: '2013',
-          label: '70100 cm',
-          sizeHint: '70100 cm',
-          dpiRequirement: 210,
+          price: 19.95,
+          shipping: 3.95,
+          currency: 'EUR',
         },
       ],
     },
   ],
 };
 
-const providerMap: Record<Provider, 'printful' | 'printify'> = {
+const providerMap: Record<Provider, 'printful' | 'printify' | 'cloudprinter'> = {
   [Provider.PRINTFUL]: 'printful',
   [Provider.PRINTIFY]: 'printify',
+  [Provider.CLOUDPRINTER]: 'cloudprinter',
 };
 
 async function fetchProviderCatalog(provider: Provider): Promise<StudioProduct[]> {
@@ -149,11 +85,30 @@ async function fetchProviderCatalog(provider: Provider): Promise<StudioProduct[]
             : providerVariants;
 
           if (filtered.length > 0) {
-            variants = filtered.map((variant) => ({
-              id: variant.id,
-              label: variant.size,
-              dpiRequirement: variant.dpiRequirement,
-            }));
+            // Fetch pricing for each variant
+            const variantsWithPricing = await Promise.all(
+              filtered.map(async (variant) => {
+                try {
+                  const quote = await service.getQuote(curated.productId, variant.id, 1);
+                  return {
+                    id: variant.id,
+                    label: variant.size,
+                    dpiRequirement: variant.dpiRequirement,
+                    price: quote.price,
+                    shipping: quote.shipping,
+                    currency: quote.currency,
+                  };
+                } catch (quoteError) {
+                  // Fallback without pricing if quote fails
+                  return {
+                    id: variant.id,
+                    label: variant.size,
+                    dpiRequirement: variant.dpiRequirement,
+                  };
+                }
+              })
+            );
+            variants = variantsWithPricing;
           }
         } catch (variantError) {
           // Silently fallback to curated variants when provider call fails
@@ -182,10 +137,9 @@ async function fetchProviderCatalog(provider: Provider): Promise<StudioProduct[]
 }
 
 export async function listStudioProducts() {
-  const [printful, printify] = await Promise.all([
-    fetchProviderCatalog(Provider.PRINTFUL),
-    fetchProviderCatalog(Provider.PRINTIFY),
-  ]);
-
-  return [...printful, ...printify];
+  // Pour le moment, on utilise uniquement CloudPrinter
+  // Printful et Printify sont désactivés
+  const cloudprinter = await fetchProviderCatalog(Provider.CLOUDPRINTER);
+  
+  return cloudprinter;
 }

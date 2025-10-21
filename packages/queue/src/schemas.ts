@@ -50,7 +50,7 @@ export const mockupJobSchema = z.object({
 
 // TODO(queue): Attach provider routing hints and retry metadata (backoff, maxAttempts) for fulfillment jobs.
 export const fulfillmentJobSchema = z.object({
-  provider: z.enum(['printful', 'printify']),
+  provider: z.enum(['printful', 'printify', 'cloudprinter']),
   order: z.object({
     orderId: z.string(),
     files: z.array(

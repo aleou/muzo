@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ProductCardEnhanced } from "@/components/product-card-enhanced";
+import { CheckoutSummary } from "@/components/checkout-summary";
 
 type StyleOption = {
   id: string;
@@ -55,6 +57,9 @@ type StudioProduct = {
     sizeHint?: string;
     pieces?: number;
     dpiRequirement: number;
+    price?: number;
+    shipping?: number;
+    currency?: string;
   }>;
 };
 
@@ -1109,74 +1114,43 @@ export function StudioWizard({
             <CardHeader>
               <CardTitle>Choisissez un produit</CardTitle>
               <CardDescription>
-                Un seul produit pour commencer. Vous pourrez ajouter des options supplementaires plus tard.
+                Sélectionnez le produit et la variante qui vous conviennent. Les prix incluent production et livraison.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid gap-4 sm:grid-cols-2">
-                {products.map((item) => (
-                  <button
-                    key={`${item.provider}-${item.productId}`}
-                    type="button"
-                    className={cn(
-                      "flex flex-col gap-2 rounded-lg border p-4 text-left transition",
-                      selectedProductId === item.productId
-                        ? "border-violet-400 bg-violet-500/10"
-                        : "border-slate-700 bg-slate-900/60 hover:border-slate-500",
-                      isSavingProduct && selectedProductId !== item.productId && "opacity-60",
-                    )}
-                    disabled={isSavingProduct}
-                    onClick={() => {
-                      setSelectedProductId(item.productId);
-                      setSelectedVariantId("");
-                    }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-slate-50">{item.name}</p>
-                      <Badge className="uppercase tracking-wide">{item.kind}</Badge>
-                    </div>
-                    {item.description ? <p className="text-xs text-slate-400">{item.description}</p> : null}
-                  </button>
-                ))}
-              </div>
+              <form className="space-y-6" onSubmit={handleProductSelection}>
+                <div className="grid gap-6 sm:grid-cols-2">
+                  {products.map((item) => (
+                    <ProductCardEnhanced
+                      key={`${item.provider}-${item.productId}`}
+                      product={item}
+                      isSelected={selectedProductId === item.productId}
+                      selectedVariantId={selectedVariantId}
+                      onSelectProduct={() => {
+                        setSelectedProductId(item.productId);
+                        setSelectedVariantId("");
+                      }}
+                      onSelectVariant={(variantId) => setSelectedVariantId(variantId)}
+                      disabled={isSavingProduct}
+                    />
+                  ))}
+                </div>
 
-              {currentProduct ? (
-                <form className="space-y-3" onSubmit={handleProductSelection}>
-                  <Label htmlFor="variant">Variante</Label>
-                  <select
-                    id="variant"
-                    className="w-full rounded-md border border-slate-700 bg-slate-900 p-3 text-sm text-slate-100"
-                    value={selectedVariantId}
-                    onChange={(event) => setSelectedVariantId(event.target.value)}
-                    disabled={isSavingProduct}
-                  >
-                    <option value="">Selectionnez une variante</option>
-                    {currentProduct.variants.map((variant) => (
-                      <option key={variant.id} value={variant.id}>
-                        {variant.label}
-                        {variant.pieces ? ` ' ${variant.pieces} pieces` : ""}
-                        {variant.sizeHint ? ` ' ${variant.sizeHint}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-slate-500">
-                    Resolution minimale recommande: {currentProduct.variants[0]?.dpiRequirement ?? 300} DPI.
-                  </p>
-
-                  <div className="flex justify-end">
-                    <Button type="submit" disabled={isSavingProduct || !selectedVariantId} className="gap-2">
+                {selectedProductId && selectedVariantId && (
+                  <div className="flex justify-end pt-4 border-t border-slate-800">
+                    <Button type="submit" disabled={isSavingProduct} className="gap-2">
                       {isSavingProduct ? (
                         <>
                           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                           Enregistrement...
                         </>
                       ) : (
-                        "Enregistrer et continuer"
+                        "Continuer vers le paiement"
                       )}
                     </Button>
                   </div>
-                </form>
-              ) : null}
+                )}
+              </form>
             </CardContent>
           </Card>
         )}
@@ -1442,28 +1416,42 @@ export function StudioWizard({
         )}
 
         {currentStep.key === "checkout" && project && (
-          <Card className="border-slate-800 bg-slate-900/70 shadow-xl">
-            <CardHeader>
-              <CardTitle>Prochaine etape</CardTitle>
-              <CardDescription>
-                Des que la preview est validee, vous pourrez choisir les quantites et finaliser le paiement.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-slate-300">
-                Nous vous enverrons un email avec la preview finale ainsi qu'un lien direct vers la caisse. Vous pouvez fermer cette page, nous vous
-                guiderons pour la suite.
-              </p>
-              <div className="rounded-md border border-slate-700 bg-slate-900/60 p-4 text-sm text-slate-300">
-                <p className="font-semibold text-slate-100">Et apres ?</p>
-                <ul className="mt-2 list-disc space-y-1 pl-5">
-                  <li>Recevez la preview et le mockup produit par email.</li>
-                  <li>Validez ou demandez une retouche.</li>
-                  <li>Passez en caisse et suivez l'expedition en temps reel.</li>
-                </ul>
-              </div>
-            </CardContent>
-          </Card>
+          <>
+            {selectedProductId && selectedVariantId ? (
+              <CheckoutSummary
+                projectId={project.id}
+                projectTitle={project.title}
+                productName={currentProduct?.name ?? "Produit personnalisé"}
+                variantLabel={
+                  currentProduct?.variants.find((v) => v.id === selectedVariantId)?.label ?? 
+                  selectedVariantId
+                }
+                imageUrl={previewImages[0]?.url ?? asset?.url ?? project.signedInputImageUrl ?? project.inputImageUrl}
+                price={currentProduct?.variants.find((v) => v.id === selectedVariantId)?.price ?? 19.90}
+                shipping={currentProduct?.variants.find((v) => v.id === selectedVariantId)?.shipping ?? 4.95}
+                currency={currentProduct?.variants.find((v) => v.id === selectedVariantId)?.currency ?? "EUR"}
+                productData={{
+                  provider: currentProduct?.provider,
+                  variantId: selectedVariantId,
+                  quantity: 1,
+                }}
+              />
+            ) : (
+              <Card className="border-slate-800 bg-slate-900/70 shadow-xl">
+                <CardHeader>
+                  <CardTitle>Sélection produit incomplète</CardTitle>
+                  <CardDescription>
+                    Veuillez d'abord choisir un produit et une variante à l'étape précédente.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button variant="secondary" onClick={() => goToStep(3)}>
+                    Retour à la sélection produit
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </>
         )}
       </div>
     </div>

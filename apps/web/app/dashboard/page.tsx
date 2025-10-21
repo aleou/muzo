@@ -21,6 +21,13 @@ function formatDate(value: Date) {
   }).format(value);
 }
 
+function formatCurrency(amount: number, currency: string) {
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+  }).format(amount);
+}
+
 function getStatusLabel(status: string) {
   switch (status) {
     case 'CREATED':

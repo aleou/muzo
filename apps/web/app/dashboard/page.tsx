@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getDashboardData } from '@/lib/data/dashboard';
+import { getOrdersWithSignedUrls } from '@/lib/data/orders';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = {
@@ -94,7 +95,10 @@ export default async function DashboardPage() {
   }
 
   const data = await getDashboardData(session.user.id);
-  const { user, projects, orders } = data;
+  const { user, projects } = data;
+  
+  // Récupérer les commandes avec URLs signées séparément
+  const orders = await getOrdersWithSignedUrls(session.user.id);
 
   if (!user) {
     return (
@@ -263,9 +267,17 @@ export default async function DashboardPage() {
       </section>
 
       <section className="space-y-4">
-        <div>
-          <h2 className="text-2xl font-semibold text-slate-100">Commandes recentes</h2>
-          <p className="text-sm text-slate-400">Suivez les statuts, paiements et envois en temps reel.</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold text-slate-100">Commandes recentes</h2>
+            <p className="text-sm text-slate-400">Suivez les statuts, paiements et envois en temps reel.</p>
+          </div>
+          {orders.length > 0 && (
+            <Button variant="ghost" href="/dashboard/orders">
+              Voir toutes les commandes
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          )}
         </div>
         {latestOrders.length === 0 ? (
           <Card>

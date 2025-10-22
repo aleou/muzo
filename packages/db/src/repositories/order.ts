@@ -27,3 +27,22 @@ export function listOrdersByUser(userId: string) {
     },
   });
 }
+
+export function findOrderById(orderId: string) {
+  return prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      project: {
+        include: {
+          outputs: true,
+        },
+      },
+      user: {
+        select: {
+          name: true,
+          email: true,
+        },
+      },
+    },
+  });
+}

@@ -1,7 +1,7 @@
 import pino from 'pino';
 import { CloudPrinter } from '@muzo/cloudprinter';
 import type { FulfillmentOrder, FulfillmentProvider } from '../provider';
-import { calculateMD5FromS3Url } from '../utils/s3';
+import { calculateMD5FromS3Url, getSignedS3Url } from '../utils/s3';
 
 export function createCloudPrinterProvider(): FulfillmentProvider {
   const apiKey = process.env.CLOUDPRINTER_API_KEY;
@@ -24,15 +24,17 @@ export function createCloudPrinterProvider(): FulfillmentProvider {
       const firstname = nameParts[0] || 'Customer';
       const lastname = nameParts.slice(1).join(' ') || 'MUZO';
 
-      // Calculate MD5 checksums for all files from S3
-      logger.info({ orderId: order.orderId, fileCount: order.files.length }, 'Calculating MD5 checksums from S3');
+      // Get signed URLs and calculate MD5 checksums for all files
+      logger.info({ orderId: order.orderId, fileCount: order.files.length }, 'Preparing files with signed URLs and MD5 checksums');
       const filesWithMD5 = await Promise.all(
         order.files.map(async (file) => {
+          // Get a long-lived signed URL (24 hours) so CloudPrinter can download the file
+          const signedUrl = await getSignedS3Url(file.url, { expiresIn: 86400 }); // 24 hours
           const md5sum = await calculateMD5FromS3Url(file.url);
-          logger.info({ url: file.url, md5sum }, 'MD5 calculated');
+          logger.info({ originalUrl: file.url, signedUrl, md5sum }, 'File prepared with signed URL and MD5');
           return {
             type: 'product' as const,
-            url: file.url,
+            url: signedUrl, // Use signed URL instead of public URL
             md5sum,
           };
         })
@@ -41,7 +43,7 @@ export function createCloudPrinterProvider(): FulfillmentProvider {
       // Map items to CloudPrinter format (very specific schema)
       // Puzzle products require BOTH 'product' and 'box' files
       const items = order.items.map((item, index) => ({
-        reference: `item-${index + 1}`, // Unique reference for this item
+        reference: `${order.orderId}-item-${index + 1}`, // Unique reference for this item
         product: item.variantId, // CloudPrinter product reference
         shipping_level: 'cp_ground', // Required! Ground shipping (3-10 days)
         title: 'Puzzle Photo MUZO', // Item title
@@ -60,30 +62,37 @@ export function createCloudPrinterProvider(): FulfillmentProvider {
       // Create order with CloudPrinter API
       const orderPayload = {
         reference: order.orderId, // Use our internal order ID as reference
-        email: 'orders@muzo.app', // TODO: Use real customer email
+        email: 'orders@muzo.app', // Support email for CloudPrinter
         items,
         addresses: [
           {
-            type: 'delivery', // Required: 'delivery' or 'billing'
+            type: 'delivery' as const, // Required: 'delivery' or 'billing'
             firstname,
             lastname,
             street1: order.shipping.address1,
             city: order.shipping.city,
             zip: order.shipping.zip,
             country: order.shipping.country,
-            phone: '+33123456789', // TODO: Get real phone number
-            email: 'customer@muzo.app', // TODO: Get real customer email
+            phone: '+33123456789', // TODO: Get real phone number from order
+            email: 'customer@muzo.app', // TODO: Get real customer email from order
           },
         ],
       };
 
-      // Log complete payload for debugging
-      logger.info({ orderPayload: JSON.stringify(orderPayload) }, 'Sending order to CloudPrinter');
+      // Log complete payload for debugging (without sensitive data)
+      logger.info(
+        { 
+          reference: orderPayload.reference,
+          itemCount: orderPayload.items.length,
+          address: orderPayload.addresses[0],
+        }, 
+        'Sending order to CloudPrinter'
+      );
 
       const response = await client.orders.create(orderPayload);
 
-      const providerOrderId = response.order; // Response has 'order' field, not 'reference'
-      logger.info({ providerOrderId, orderId: order.orderId }, 'CloudPrinter order created');
+      const providerOrderId = response.order; // Response has 'order' field with the reference
+      logger.info({ providerOrderId, orderId: order.orderId }, 'CloudPrinter order created successfully');
       
       return { providerOrderId };
     },

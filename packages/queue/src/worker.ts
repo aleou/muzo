@@ -147,7 +147,7 @@ export function createQueueWorker<T extends JobType>(options: QueueWorkerOptions
             message: 'Maximum attempts exhausted',
             attempts: job.attempts,
             maxAttempts: job.maxAttempts,
-          } as Prisma.InputJsonValue,
+          },
         },
       });
       logger?.error?.({ jobId: job.id }, 'Job reached max attempts without processing');
@@ -245,7 +245,7 @@ export function createQueueWorker<T extends JobType>(options: QueueWorkerOptions
     };
 
     if (typeof result !== 'undefined') {
-      data.result = result as Prisma.InputJsonValue;
+      data.result = result as Record<string, unknown>;
     }
 
     await client.job.update({
@@ -280,12 +280,17 @@ export function createQueueWorker<T extends JobType>(options: QueueWorkerOptions
   }
 
   async function workerLoop(slot: number) {
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 5;
+    const ERROR_BACKOFF_MS = 10000; // 10 seconds
+
     while (running && !stopRequested) {
       try {
         const job = await reserveJob();
 
         if (!job) {
           await sleep(pollIntervalMs);
+          consecutiveErrors = 0; // Reset on successful poll
           continue;
         }
 
@@ -294,12 +299,40 @@ export function createQueueWorker<T extends JobType>(options: QueueWorkerOptions
         try {
           const result = await handler(job);
           await completeJobSuccess(job.id, result);
+          consecutiveErrors = 0; // Reset on successful job
         } catch (error) {
           await handleJobFailure(job, error);
         }
       } catch (loopError) {
-        logger?.error?.({ workerId, slot, err: loopError }, 'Queue worker loop error');
-        await sleep(pollIntervalMs);
+        consecutiveErrors++;
+        
+        const errorMessage = loopError instanceof Error ? loopError.message : String(loopError);
+        const isConnectionError = 
+          errorMessage.includes('Server selection timeout') ||
+          errorMessage.includes('No available servers') ||
+          errorMessage.includes('MongoDB connection unavailable') ||
+          errorMessage.includes('ECONNREFUSED');
+
+        if (isConnectionError) {
+          logger?.error?.(
+            { workerId, slot, err: loopError, consecutiveErrors },
+            'MongoDB connection error in worker loop'
+          );
+
+          // If we have too many consecutive errors, back off more aggressively
+          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            logger?.warn?.(
+              { workerId, slot, consecutiveErrors },
+              `Too many consecutive errors, backing off for ${ERROR_BACKOFF_MS}ms`
+            );
+            await sleep(ERROR_BACKOFF_MS);
+          } else {
+            await sleep(pollIntervalMs * 2); // Double the normal poll interval
+          }
+        } else {
+          logger?.error?.({ workerId, slot, err: loopError }, 'Queue worker loop error');
+          await sleep(pollIntervalMs);
+        }
       }
     }
   }
@@ -353,7 +386,7 @@ function computeBackoff(attempt: number) {
   return Math.min(delay, MAX_BACKOFF_MS);
 }
 
-function serializeError(error: unknown): Prisma.InputJsonValue {
+function serializeError(error: unknown): Record<string, unknown> {
   if (error instanceof Error) {
     return {
       name: error.name,
@@ -446,7 +479,18 @@ async function detectTransactionSupport(client: PrismaClientOrTransaction): Prom
           return true;
         }
       }
-    } catch {
+    } catch (error) {
+      // If we get a connection error, MongoDB is not available in replica set mode
+      // Continue to next command or return false
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (
+        errorMessage.includes('Server selection timeout') ||
+        errorMessage.includes('No available servers') ||
+        errorMessage.includes('connection') ||
+        errorMessage.includes('ECONNREFUSED')
+      ) {
+        return false;
+      }
       // Command not supported, try the next one.
     }
   }
@@ -469,30 +513,43 @@ async function claimJobWithoutReplica(
     return 0;
   }
 
-  const result = (await rawClient.$runCommandRaw({
-    update: 'Job',
-    updates: [
-      {
-        q: {
-          _id: toMongoObjectId(jobId),
-          status: JobStatus.PENDING,
-          attempts: expectedAttempts,
-        },
-        u: {
-          $set: {
-            status: JobStatus.RUNNING,
-            lockedAt: { $date: lockedAt.toISOString() },
-            lockedUntil: { $date: lockedUntil.toISOString() },
-            lockedBy: workerId,
+  try {
+    const result = (await rawClient.$runCommandRaw({
+      update: 'Job',
+      updates: [
+        {
+          q: {
+            _id: toMongoObjectId(jobId),
+            status: JobStatus.PENDING,
+            attempts: expectedAttempts,
           },
-          $inc: { attempts: 1 },
+          u: {
+            $set: {
+              status: JobStatus.RUNNING,
+              lockedAt: { $date: lockedAt.toISOString() },
+              lockedUntil: { $date: lockedUntil.toISOString() },
+              lockedBy: workerId,
+            },
+            $inc: { attempts: 1 },
+          },
+          multi: false,
         },
-        multi: false,
-      },
-    ],
-  })) as Record<string, unknown>;
+      ],
+    })) as Record<string, unknown>;
 
-  return extractModifiedCount(result);
+    return extractModifiedCount(result);
+  } catch (error) {
+    // If MongoDB is not available, return 0 to indicate no jobs were claimed
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (
+      errorMessage.includes('Server selection timeout') ||
+      errorMessage.includes('No available servers') ||
+      errorMessage.includes('connection')
+    ) {
+      throw new Error('MongoDB connection unavailable');
+    }
+    throw error;
+  }
 }
 
 async function releaseStaleJobsWithoutReplica(
@@ -508,29 +565,42 @@ async function releaseStaleJobsWithoutReplica(
     return 0;
   }
 
-  const result = (await rawClient.$runCommandRaw({
-    update: 'Job',
-    updates: [
-      {
-        q: {
-          type,
-          status: JobStatus.RUNNING,
-          lockedUntil: { $lte: now },
-        },
-        u: {
-          $set: {
-            status: JobStatus.PENDING,
-            lockedAt: null,
-            lockedUntil: null,
-            lockedBy: null,
+  try {
+    const result = (await rawClient.$runCommandRaw({
+      update: 'Job',
+      updates: [
+        {
+          q: {
+            type,
+            status: JobStatus.RUNNING,
+            lockedUntil: { $lte: now },
           },
+          u: {
+            $set: {
+              status: JobStatus.PENDING,
+              lockedAt: null,
+              lockedUntil: null,
+              lockedBy: null,
+            },
+          },
+          multi: true,
         },
-        multi: true,
-      },
-    ],
-  })) as Record<string, unknown>;
+      ],
+    })) as Record<string, unknown>;
 
-  return extractModifiedCount(result);
+    return extractModifiedCount(result);
+  } catch (error) {
+    // If MongoDB is not available, return 0 to indicate no jobs were released
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (
+      errorMessage.includes('Server selection timeout') ||
+      errorMessage.includes('No available servers') ||
+      errorMessage.includes('connection')
+    ) {
+      throw new Error('MongoDB connection unavailable');
+    }
+    throw error;
+  }
 }
 
 function toMongoObjectId(id: string) {

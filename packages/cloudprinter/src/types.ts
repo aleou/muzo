@@ -96,7 +96,7 @@ export type OrderDetails = z.infer<typeof OrderDetailsSchema>;
  * Order creation types
  */
 export const CreateOrderItemFileSchema = z.object({
-  type: z.enum(["product", "cover", "book"]),
+  type: z.enum(["product", "cover", "book", "box"]), // Added "box" for puzzle box files
   url: z.string(),
   md5sum: z.string(),
 });

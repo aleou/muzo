@@ -8,6 +8,7 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "test": "turbo test",
+    "check-env": "tsx scripts/check-env.ts",
     "prepare": "husky install"
   },
   "devDependencies": {

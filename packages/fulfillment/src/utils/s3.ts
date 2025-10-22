@@ -1,4 +1,5 @@
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { getSignedUrl as awsGetSignedUrl } from '@aws-sdk/s3-request-presigner';
 import crypto from 'crypto';
 import pino from 'pino';
 
@@ -36,6 +37,7 @@ function getS3Client(): S3Client {
 
 /**
  * Extract S3 key from URL
+ * Handles both public URLs and pre-signed URLs (strips query params)
  */
 function extractS3KeyFromUrl(url: string): string | null {
   try {
@@ -44,7 +46,9 @@ function extractS3KeyFromUrl(url: string): string | null {
       throw new Error('S3_BUCKET not configured');
     }
 
-    const parsed = new URL(url);
+    // Remove query parameters (X-Amz-*, etc.) to get the base URL
+    const baseUrl = url.split('?')[0];
+    const parsed = new URL(baseUrl);
     const cleanPath = (value: string) => value.replace(/^\/+/, '');
 
     // Handle custom endpoint (e.g., MinIO, Cloudflare R2)
@@ -85,6 +89,41 @@ function extractS3KeyFromUrl(url: string): string | null {
   } catch (error) {
     logger.error({ error, url }, 'Failed to extract S3 key from URL');
     return null;
+  }
+}
+
+/**
+ * Get a signed URL for S3 object (for secure access)
+ */
+export async function getSignedS3Url(
+  url: string, 
+  options: { expiresIn?: number } = {}
+): Promise<string> {
+  const bucket = process.env.S3_BUCKET;
+  if (!bucket) {
+    throw new Error('S3_BUCKET not configured');
+  }
+
+  // Extract S3 key from URL
+  const key = extractS3KeyFromUrl(url);
+  if (!key) {
+    throw new Error(`Failed to extract S3 key from URL: ${url}`);
+  }
+
+  logger.info({ url, bucket, key, expiresIn: options.expiresIn }, 'Generating signed S3 URL');
+
+  try {
+    const client = getS3Client();
+    const command = new GetObjectCommand({ Bucket: bucket, Key: key });
+    const signedUrl = await awsGetSignedUrl(client, command, {
+      expiresIn: options.expiresIn ?? 3600, // Default 1 hour
+    });
+
+    logger.info({ url, signedUrl }, 'Signed URL generated successfully');
+    return signedUrl;
+  } catch (error) {
+    logger.error({ error, url, bucket, key }, 'Failed to generate signed URL');
+    throw new Error(`Failed to generate signed URL for ${url}: ${error}`);
   }
 }
 

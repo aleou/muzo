@@ -14,7 +14,12 @@ export interface FulfillmentOrder {
     zip: string;
     country: string;
   };
-  items: Array<{ variantId: string; quantity: number }>;
+  items: Array<{ 
+    productId?: string;
+    variantId: string; 
+    quantity: number;
+    productOptions?: Record<string, string>;
+  }>;
 }
 
 export interface ProductPrice {

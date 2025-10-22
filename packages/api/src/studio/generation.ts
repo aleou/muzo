@@ -16,6 +16,7 @@ function buildGenerationPayload(params: {
     promptText: string;
     inputImageUrl: string;
     previewCount: number;
+    productOptions?: unknown;
     style?: {
       id: string;
       prompt: string;
@@ -27,6 +28,22 @@ function buildGenerationPayload(params: {
 }): GenerationJob {
   const { project, stage } = params;
   const prompt = project.promptText.trim();
+
+  // Extract orientation from productOptions
+  let orientation: 'portrait' | 'landscape' = 'landscape';
+  if (project.productOptions && typeof project.productOptions === 'object') {
+    const opts = project.productOptions as Record<string, unknown>;
+    if (opts.orientation === 'portrait' || opts.orientation === 'landscape') {
+      orientation = opts.orientation;
+    }
+  }
+
+  // Determine size based on orientation
+  // Portrait: 1024x1536 (ratio 2:3, proche de 1080x1920)
+  // Landscape: 1536x1024 (ratio 3:2, proche de 1920x1080)
+  const getSize = (): '1024x1536' | '1536x1024' => {
+    return orientation === 'portrait' ? '1024x1536' : '1536x1024';
+  };
 
   const stylePreset = project.style
     ? {
@@ -50,7 +67,7 @@ function buildGenerationPayload(params: {
         ? {
             stage: 'preview',
             quality: 'medium',
-            size: '1024x1024',
+            size: getSize(),
             background: 'auto',
             moderation: 'auto',
             n: 1,
@@ -58,7 +75,7 @@ function buildGenerationPayload(params: {
         : {
             stage: 'final',
             quality: 'high',
-            size: '1024x1536',
+            size: getSize(),
             background: 'auto',
             moderation: 'auto',
             n: 1,
@@ -90,7 +107,8 @@ export async function requestProjectGeneration(input: unknown) {
   }
 
   if (payload.stage === 'preview' && !hasFreePreviewAvailable(project)) {
-    throw new Error('La generation gratuite a deja ete utilisee');
+    const currentCount = typeof project.previewCount === 'number' ? project.previewCount : 0;
+    throw new Error(`Limite de previews gratuites atteinte (${currentCount}/3). Modifiez votre brief pour regenerer.`);
   }
 
   const generationJobPayload = buildGenerationPayload({

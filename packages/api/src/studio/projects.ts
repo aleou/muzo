@@ -395,6 +395,7 @@ const updateProjectBriefSchema = z.object({
   title: z.string().min(1).max(120),
   promptText: z.string().min(1).max(4000),
   styleId: z.string().optional(),
+  orientation: z.enum(['portrait', 'landscape']).optional(),
   promptHints: z
     .array(
       z.object({
@@ -427,14 +428,21 @@ export async function updateProjectBrief(input: unknown) {
     description: hint.description,
   }));
 
-  const updateData = {
+  // Check if prompt or orientation has changed significantly - reset preview count to allow regeneration
+  const shouldResetPreviewCount = 
+    existing.promptText !== payload.promptText ||
+    (existing.productOptions as any)?.orientation !== payload.orientation;
+
+  const updateData: Partial<Prisma.ProjectUpdateInput> = {
     title: payload.title,
     promptText: payload.promptText,
     promptHints: normalizedPromptHints as Prisma.InputJsonValue,
     updatedAt: new Date(),
-  } satisfies Pick<Prisma.ProjectUpdateInput, 'title' | 'promptText' | 'promptHints' | 'updatedAt'>;
+    ...(shouldResetPreviewCount ? { previewCount: 0 } : {}),
+  };
 
   const styleIdValue = payload.styleId;
+  const orientationValue = payload.orientation;
 
   try {
     const project = await prisma.project.update({
@@ -454,6 +462,13 @@ export async function updateProjectBrief(input: unknown) {
                   ? null
                   : styleIdValue,
             }),
+        ...(orientationValue
+          ? {
+              productOptions: {
+                orientation: orientationValue,
+              } as Prisma.InputJsonValue,
+            }
+          : {}),
       },
     });
 
@@ -466,6 +481,7 @@ export async function updateProjectBrief(input: unknown) {
       return await updateProjectBriefWithoutReplicaSet({
         ...payload,
         promptHints: normalizedPromptHints,
+        shouldResetPreviewCount,
       });
     }
 
@@ -479,7 +495,9 @@ async function updateProjectBriefWithoutReplicaSet(params: {
   title: string;
   promptText: string;
   styleId?: string | null;
+  orientation?: 'portrait' | 'landscape';
   promptHints: Array<{ id: string; title: string; description: string }>;
+  shouldResetPreviewCount?: boolean;
 }) {
   const updatedAt = new Date();
 
@@ -493,6 +511,16 @@ async function updateProjectBriefWithoutReplicaSet(params: {
     })),
     updatedAt: toMongoDate(updatedAt),
   };
+
+  if (params.shouldResetPreviewCount) {
+    updateDocument.previewCount = 0;
+  }
+
+  if (params.orientation) {
+    updateDocument.productOptions = {
+      orientation: params.orientation,
+    };
+  }
 
   if (params.styleId === undefined) {
     // no-op
@@ -629,5 +657,7 @@ function normalizePreviewCount(value: unknown): number {
 }
 
 export function hasFreePreviewAvailable(project: { previewCount?: unknown }) {
-  return normalizePreviewCount(project.previewCount) < 1;
+  // Allow up to 3 free previews per project to give users flexibility to refine
+  const MAX_FREE_PREVIEWS = 3;
+  return normalizePreviewCount(project.previewCount) < MAX_FREE_PREVIEWS;
 }

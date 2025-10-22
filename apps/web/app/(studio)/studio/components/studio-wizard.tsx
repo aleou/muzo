@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ProductCardEnhanced } from "@/components/product-card-enhanced";
+import { ProductSelector } from "./product-selector-v2";
 import { CheckoutSummary } from "@/components/checkout-summary";
 
 type StyleOption = {
@@ -31,6 +31,7 @@ type Project = {
   productProvider?: string | null;
   productId?: string | null;
   productVariantId?: string | null;
+  productOptions?: Record<string, unknown> | null;
   previews?: PreviewImage[];
 };
 
@@ -87,14 +88,67 @@ const WORKFLOW_STEPS: Step[] = [
   { key: "checkout", title: "5. Finalisez", description: "Validez, passez en caisse, recevez votre creation." },
 ];
 
-const PROMPT_SUGGESTIONS = [
-  "Lumiere douce",
-  "Palette pastel",
-  "Style bande dessinee",
-  "Ambiance festive",
-  "Focus sur le visage",
-  "Arriere-plan flou",
+type PresetConfig = {
+  id: string;
+  name: string;
+  prompt: string;
+  orientation: "portrait" | "landscape";
+  imageUrl: string;
+  description: string;
+};
+
+const PRESET_CONFIGS: PresetConfig[] = [
+  {
+    id: "portrait-moderne",
+    name: "Portrait Moderne",
+    prompt: "Portrait moderne et elegante, lumiere douce et naturelle, arriere-plan flou artistique, focus sur le visage, tonalites chaudes",
+    orientation: "portrait",
+    imageUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&h=600&fit=crop",
+    description: "Style portrait professionnel",
+  },
+  {
+    id: "paysage-nature",
+    name: "Paysage Nature",
+    prompt: "Paysage naturel epoustouflant, ciel dramatique, couleurs vibrantes, composition panoramique, lumiere doree du coucher de soleil",
+    orientation: "landscape",
+    imageUrl: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&h=400&fit=crop",
+    description: "Vue panoramique naturelle",
+  },
+  {
+    id: "portrait-artistique",
+    name: "Portrait Artistique",
+    prompt: "Portrait artistique stylise, palette de couleurs pastel, effet pictural, texture douce, atmosphere onirique et poetique",
+    orientation: "portrait",
+    imageUrl: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=400&h=600&fit=crop",
+    description: "Rendu artistique et doux",
+  },
+  {
+    id: "scene-urbaine",
+    name: "Scène Urbaine",
+    prompt: "Scene urbaine moderne, architecture contemporaine, perspective dynamique, contrastes marques, ambiance cinematographique",
+    orientation: "landscape",
+    imageUrl: "https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=600&h=400&fit=crop",
+    description: "Atmosphere urbaine moderne",
+  },
+  {
+    id: "portrait-colore",
+    name: "Portrait Coloré",
+    prompt: "Portrait vibrant et colore, eclairage creatif, couleurs saturees, style pop art moderne, energie visuelle forte",
+    orientation: "portrait",
+    imageUrl: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400&h=600&fit=crop",
+    description: "Style dynamique et vibrant",
+  },
+  {
+    id: "paysage-minimaliste",
+    name: "Paysage Minimaliste",
+    prompt: "Composition minimaliste epuree, lignes simples, palette limitee, espace negatif, atmosphere zen et contemplative",
+    orientation: "landscape",
+    imageUrl: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=600&h=400&fit=crop",
+    description: "Composition épurée et zen",
+  },
 ];
+
+type OrientationOption = "portrait" | "landscape";
 
 type NotificationItem = {
   id: string;
@@ -239,6 +293,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   product_save_failed: "Impossible d'enregistrer le produit selectionne.",
   brief_save_failed: "Enregistrement du brief impossible.",
   generation_failed: "La generation a echoue.",
+  preview_limit_reached: "Vous avez atteint la limite de previews gratuites pour ce projet. Modifiez votre brief pour generer une nouvelle preview.",
   project_refresh_failed: "Mise a jour des previews impossible.",
 };
 
@@ -267,6 +322,12 @@ function resolveFriendlyMessage(error: unknown, fallback: string) {
   if (error instanceof Error) {
     const segments = error.message.split(":");
     const [code, status, ...rest] = segments;
+    
+    // Check for specific error messages in the error string
+    if (error.message.includes("La generation gratuite a deja ete utilisee")) {
+      return ERROR_MESSAGES.preview_limit_reached;
+    }
+    
     const base = ERROR_MESSAGES[code] ?? fallback;
     const detail = rest.join(":").trim();
 
@@ -461,6 +522,7 @@ function normalizeProject(raw: unknown, previous: Project | null): Project {
     productProvider: null,
     productId: null,
     productVariantId: null,
+    productOptions: null,
     previews: [],
   };
 
@@ -498,6 +560,10 @@ function normalizeProject(raw: unknown, previous: Project | null): Project {
     productProvider,
     productId: resolvedProductId ?? null,
     productVariantId: resolvedProductVariantId ?? null,
+    productOptions: 
+      source.productOptions && typeof source.productOptions === "object"
+        ? (source.productOptions as Record<string, unknown>)
+        : fallback.productOptions,
     previews: normalizePreviews(source.previews, fallback.previews ?? []),
   };
 }
@@ -548,7 +614,16 @@ export function StudioWizard({
   const [products, setProducts] = useState<StudioProduct[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedVariantId, setSelectedVariantId] = useState("");
+  const [selectedProductOptions, setSelectedProductOptions] = useState<Record<string, string>>({});
+  const [priceQuote, setPriceQuote] = useState<{
+    productPrice: number;
+    shippingPrice: number;
+    totalPrice: number;
+    currency: string;
+  } | null>(null);
+  const [loadingQuote, setLoadingQuote] = useState(false);
   const [selectedStyleId, setSelectedStyleId] = useState("");
+  const [selectedOrientation, setSelectedOrientation] = useState<OrientationOption>("landscape");
   const [title, setTitle] = useState(initialProject?.title ?? "");
   const [prompt, setPrompt] = useState(initialProject?.promptText ?? "");
   const [loadingAction, setLoadingAction] = useState<LoadingAction | null>(null);
@@ -971,15 +1046,17 @@ export function StudioWizard({
       setLoadingAction("product");
 
       try {
-        const product = products.find((item) => item.productId === selectedProductId);
+        // Utiliser CloudPrinter comme provider (MAJUSCULES pour correspondre à l'enum Prisma)
+        const provider = "CLOUDPRINTER";
 
         const response = await fetch(`/api/studio/projects/${project.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            provider: product?.provider,
+            provider,
             productId: selectedProductId,
             productVariantId: selectedVariantId,
+            productOptions: selectedProductOptions,
           }),
         });
 
@@ -991,6 +1068,32 @@ export function StudioWizard({
         const normalizedProject = normalizeProject(payload.project, project);
         setProject(normalizedProject);
         syncPreviewImages(normalizedProject);
+        
+        // Récupérer le devis de prix en parallèle
+        setLoadingQuote(true);
+        try {
+          const quoteResponse = await fetch('/api/studio/quote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productId: selectedProductId,
+              productOptions: selectedProductOptions,
+              quantity: 1,
+              countryCode: 'FR',
+            }),
+          });
+
+          if (quoteResponse.ok) {
+            const quote = await quoteResponse.json();
+            setPriceQuote(quote);
+          }
+        } catch (quoteError) {
+          console.error('Failed to fetch quote:', quoteError);
+          // Ne pas bloquer si le devis échoue
+        } finally {
+          setLoadingQuote(false);
+        }
+        
         setStepIndex(4);
       } catch (productError) {
         console.error(productError);
@@ -999,7 +1102,7 @@ export function StudioWizard({
         setLoadingAction((current) => (current === "product" ? null : current));
       }
     },
-    [project, products, selectedProductId, selectedVariantId, clearError, showError, syncPreviewImages],
+    [project, selectedProductId, selectedVariantId, selectedProductOptions, clearError, showError, syncPreviewImages],
   );
 
   const handleBriefSubmit = useCallback(
@@ -1019,6 +1122,9 @@ export function StudioWizard({
       clearError();
 
       let nextProjectId: string | null = null;
+      const hasChangedPrompt = project.promptText !== prompt;
+      const hasChangedOrientation = 
+        (project.productOptions as any)?.orientation !== selectedOrientation;
 
       try {
         const response = await fetch(`/api/studio/projects/${project.id}`, {
@@ -1028,6 +1134,7 @@ export function StudioWizard({
             title: title.trim().length === 0 ? project.title : title,
             promptText: prompt,
             styleId: selectedStyleId || undefined,
+            orientation: selectedOrientation,
           }),
         });
 
@@ -1039,6 +1146,12 @@ export function StudioWizard({
         const normalizedProject = normalizeProject(payload.project, project);
         setProject(normalizedProject);
         syncPreviewImages(normalizedProject);
+        
+        // Show info message if preview count was reset
+        if ((hasChangedPrompt || hasChangedOrientation) && project.previewCount > 0) {
+          pushNotification("Votre brief a été modifié. Compteur de previews réinitialisé.");
+        }
+        
         setStepIndex(2);
         nextProjectId = normalizedProject.id;
       } catch (briefError) {
@@ -1052,7 +1165,7 @@ export function StudioWizard({
         void handlePreviewLaunch(nextProjectId);
       }
     },
-    [project, prompt, title, selectedStyleId, handlePreviewLaunch, clearError, showError, syncPreviewImages],
+    [project, prompt, title, selectedStyleId, selectedOrientation, handlePreviewLaunch, clearError, showError, syncPreviewImages, pushNotification],
   );
 
   return (
@@ -1110,49 +1223,51 @@ export function StudioWizard({
         )}
 
         {currentStep.key === "product" && project && (
-          <Card className="border-slate-800 bg-slate-900/70 shadow-xl">
-            <CardHeader>
-              <CardTitle>Choisissez un produit</CardTitle>
-              <CardDescription>
-                Sélectionnez le produit et la variante qui vous conviennent. Les prix incluent production et livraison.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <form className="space-y-6" onSubmit={handleProductSelection}>
-                <div className="grid gap-6 sm:grid-cols-2">
-                  {products.map((item) => (
-                    <ProductCardEnhanced
-                      key={`${item.provider}-${item.productId}`}
-                      product={item}
-                      isSelected={selectedProductId === item.productId}
-                      selectedVariantId={selectedVariantId}
-                      onSelectProduct={() => {
-                        setSelectedProductId(item.productId);
-                        setSelectedVariantId("");
-                      }}
-                      onSelectVariant={(variantId) => setSelectedVariantId(variantId)}
-                      disabled={isSavingProduct}
-                    />
-                  ))}
-                </div>
+          <>
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-slate-100">Choisissez votre produit</h2>
+              <p className="mt-2 text-slate-400">
+                Sélectionnez le produit compatible avec votre format {selectedOrientation === "portrait" ? "portrait (9:16)" : "paysage (16:9)"}.
+              </p>
+            </div>
 
-                {selectedProductId && selectedVariantId && (
-                  <div className="flex justify-end pt-4 border-t border-slate-800">
-                    <Button type="submit" disabled={isSavingProduct} className="gap-2">
-                      {isSavingProduct ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                          Enregistrement...
-                        </>
-                      ) : (
-                        "Continuer vers le paiement"
-                      )}
-                    </Button>
-                  </div>
-                )}
-              </form>
-            </CardContent>
-          </Card>
+            <ProductSelector
+              orientation={selectedOrientation}
+              previewImageUrl={previewImages.length > 0 ? previewImages[0].url : undefined}
+              projectTitle={project.title}
+              onProductSelect={({ productId, variantId, productName, productOptions }) => {
+                setSelectedProductId(productId);
+                setSelectedVariantId(variantId);
+                setSelectedProductOptions(productOptions || {});
+              }}
+              disabled={isSavingProduct}
+            />
+
+            {/* Bouton de confirmation visible */}
+            {selectedProductId && selectedVariantId && (
+              <div className="mt-6 flex justify-end">
+                <Button
+                  onClick={() => handleProductSelection(new Event("submit") as any)}
+                  disabled={isSavingProduct}
+                  className="gap-2 px-8 py-6 text-base"
+                >
+                  {isSavingProduct ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                      Enregistrement...
+                    </>
+                  ) : (
+                    <>
+                      Continuer vers le paiement
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      </svg>
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </>
         )}
 
         {currentStep.key === "brief" && project && (
@@ -1193,41 +1308,172 @@ export function StudioWizard({
                 </div>
 
                 <div>
+                  <Label htmlFor="studio-orientation">Format de l'image</Label>
+                  <p className="mb-2 text-xs text-slate-400">
+                    {selectedOrientation === "portrait" 
+                      ? "Portrait : 1024×1536 pixels (ratio 2:3, proche de 1080×1920)" 
+                      : "Paysage : 1536×1024 pixels (ratio 3:2, proche de 1920×1080)"}
+                  </p>
+                  <div className="mt-2 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOrientation("landscape")}
+                      disabled={isSavingBrief}
+                      className={cn(
+                        "group relative flex flex-1 items-center gap-3 rounded-lg border-2 p-3 transition-all",
+                        selectedOrientation === "landscape"
+                          ? "border-violet-500 bg-violet-500/10"
+                          : "border-slate-700 bg-slate-900/50 hover:border-slate-600",
+                        isSavingBrief && "cursor-not-allowed opacity-50",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "h-8 w-12 rounded border-2 transition-colors",
+                          selectedOrientation === "landscape"
+                            ? "border-violet-400 bg-violet-500/20"
+                            : "border-slate-600 bg-slate-800",
+                        )}
+                      />
+                      <div className="flex-1 text-left">
+                        <p
+                          className={cn(
+                            "text-sm font-medium",
+                            selectedOrientation === "landscape" ? "text-violet-200" : "text-slate-200",
+                          )}
+                        >
+                          Paysage
+                        </p>
+                        <p className="text-xs text-slate-400">16:9</p>
+                      </div>
+                      {selectedOrientation === "landscape" && (
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-violet-500 text-white">
+                          <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path
+                              fillRule="evenodd"
+                              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        </div>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOrientation("portrait")}
+                      disabled={isSavingBrief}
+                      className={cn(
+                        "group relative flex flex-1 items-center gap-3 rounded-lg border-2 p-3 transition-all",
+                        selectedOrientation === "portrait"
+                          ? "border-violet-500 bg-violet-500/10"
+                          : "border-slate-700 bg-slate-900/50 hover:border-slate-600",
+                        isSavingBrief && "cursor-not-allowed opacity-50",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "h-12 w-8 rounded border-2 transition-colors",
+                          selectedOrientation === "portrait"
+                            ? "border-violet-400 bg-violet-500/20"
+                            : "border-slate-600 bg-slate-800",
+                        )}
+                      />
+                      <div className="flex-1 text-left">
+                        <p
+                          className={cn(
+                            "text-sm font-medium",
+                            selectedOrientation === "portrait" ? "text-violet-200" : "text-slate-200",
+                          )}
+                        >
+                          Portrait
+                        </p>
+                        <p className="text-xs text-slate-400">9:16</p>
+                      </div>
+                      {selectedOrientation === "portrait" && (
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-violet-500 text-white">
+                          <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path
+                              fillRule="evenodd"
+                              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        </div>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
                   <Label htmlFor="studio-prompt">Decrivez le rendu souhaite</Label>
                   <Textarea
                     id="studio-prompt"
-                    rows={7}
+                    rows={5}
                     value={prompt}
                     onChange={(event) => setPrompt(event.target.value)}
                     disabled={isSavingBrief}
                     placeholder="Decrivez la scene finale, les emotions, les couleurs, le type de rendu..."
                   />
-                  <div className="mt-2 space-y-2 text-xs text-slate-400">
-                    <p>Suggestions:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {PROMPT_SUGGESTIONS.map((suggestion) => (
+                </div>
+
+                <div>
+                  <div className="mb-3 flex items-center justify-between">
+                    <Label>Configurations prédéfinies</Label>
+                    <p className="text-xs text-slate-400">Survolez pour plus de détails</p>
+                  </div>
+                  <div className="relative">
+                    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-track-slate-800 scrollbar-thumb-slate-600">
+                      {PRESET_CONFIGS.map((preset) => (
                         <button
-                          key={suggestion}
+                          key={preset.id}
                           type="button"
-                          className="rounded-full border border-slate-600 px-3 py-1 text-slate-200 hover:border-violet-400"
-                          onClick={() =>
-                            setPrompt((current) =>
-                              current.includes(suggestion)
-                                ? current
-                                : current.length === 0
-                                ? suggestion
-                                : `${current}\n${suggestion}`,
-                            )
-                          }
+                          onClick={() => {
+                            setPrompt(preset.prompt);
+                            setSelectedOrientation(preset.orientation);
+                          }}
+                          disabled={isSavingBrief}
+                          className="group relative flex-shrink-0 overflow-hidden rounded-xl border-2 border-slate-700 bg-slate-900/50 transition-all hover:border-violet-400 hover:shadow-lg hover:shadow-violet-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                          style={{ width: "180px" }}
                         >
-                          {suggestion}
+                          <div className="relative aspect-[3/4] overflow-hidden">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={preset.imageUrl}
+                              alt={preset.name}
+                              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                            <div className="absolute inset-x-0 bottom-0 translate-y-full p-3 transition-transform duration-300 group-hover:translate-y-0">
+                              <p className="text-xs font-medium text-white">{preset.description}</p>
+                              <div className="mt-1 flex items-center gap-1">
+                                <div
+                                  className={cn(
+                                    "h-3 w-4 rounded-sm border border-white/40",
+                                    preset.orientation === "portrait" ? "aspect-[3/4]" : "aspect-[4/3]",
+                                  )}
+                                />
+                                <p className="text-xs text-slate-300">
+                                  {preset.orientation === "portrait" ? "9:16" : "16:9"}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="p-2">
+                            <p className="text-xs font-semibold text-slate-200">{preset.name}</p>
+                          </div>
+                          <div className="absolute right-2 top-2 rounded-full bg-slate-900/80 p-1 opacity-0 transition-opacity group-hover:opacity-100">
+                            <svg className="h-4 w-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                          </div>
                         </button>
                       ))}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex justify-end border-t border-slate-800 pt-4">
                   <Button type="submit" disabled={isSavingBrief} className="gap-2">
                     {isSavingBrief ? (
                       <>
@@ -1235,7 +1481,7 @@ export function StudioWizard({
                         Sauvegarde...
                       </>
                     ) : (
-                      "Enregistrer le brief"
+                      "Lancer la generation"
                     )}
                   </Button>
                 </div>
@@ -1368,6 +1614,25 @@ export function StudioWizard({
                       </Badge>
                     )}
                   </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <p className="text-xs text-slate-400">Previews gratuites:</p>
+                    <div className="flex items-center gap-1">
+                      {[...Array(3)].map((_, i) => (
+                        <div
+                          key={i}
+                          className={cn(
+                            "h-2 w-2 rounded-full",
+                            i < project.previewCount
+                              ? "bg-violet-400"
+                              : "bg-slate-700"
+                          )}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-xs text-slate-500">
+                      {project.previewCount}/3 utilisées
+                    </span>
+                  </div>
                   {generationStatus ? (
                     <p className="mt-1 text-xs text-slate-500">{generationStatus}</p>
                   ) : null}
@@ -1418,24 +1683,54 @@ export function StudioWizard({
         {currentStep.key === "checkout" && project && (
           <>
             {selectedProductId && selectedVariantId ? (
-              <CheckoutSummary
-                projectId={project.id}
-                projectTitle={project.title}
-                productName={currentProduct?.name ?? "Produit personnalisé"}
-                variantLabel={
-                  currentProduct?.variants.find((v) => v.id === selectedVariantId)?.label ?? 
-                  selectedVariantId
-                }
-                imageUrl={previewImages[0]?.url ?? asset?.url ?? project.signedInputImageUrl ?? project.inputImageUrl}
-                price={currentProduct?.variants.find((v) => v.id === selectedVariantId)?.price ?? 19.90}
-                shipping={currentProduct?.variants.find((v) => v.id === selectedVariantId)?.shipping ?? 4.95}
-                currency={currentProduct?.variants.find((v) => v.id === selectedVariantId)?.currency ?? "EUR"}
-                productData={{
-                  provider: currentProduct?.provider,
-                  variantId: selectedVariantId,
-                  quantity: 1,
-                }}
-              />
+              loadingQuote ? (
+                <Card className="border-slate-800 bg-slate-900/70 shadow-xl">
+                  <CardContent className="flex h-96 items-center justify-center">
+                    <div className="text-center">
+                      <Loader2 className="mx-auto h-12 w-12 animate-spin text-violet-400" />
+                      <p className="mt-4 text-slate-300">Calcul du prix en temps réel...</p>
+                      <p className="mt-2 text-sm text-slate-500">Récupération du devis auprès de CloudPrinter</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : priceQuote ? (
+                <CheckoutSummary
+                  projectId={project.id}
+                  projectTitle={project.title}
+                  productName={selectedProductId}
+                  variantLabel={selectedVariantId}
+                  imageUrl={previewImages[0]?.url ?? asset?.url ?? project.signedInputImageUrl ?? project.inputImageUrl}
+                  price={priceQuote.productPrice}
+                  shipping={priceQuote.shippingPrice}
+                  currency={priceQuote.currency}
+                  productData={{
+                    provider: "CLOUDPRINTER",
+                    productId: selectedProductId,
+                    variantId: selectedVariantId,
+                    productOptions: selectedProductOptions,
+                    quantity: 1,
+                  }}
+                />
+              ) : (
+                <CheckoutSummary
+                  projectId={project.id}
+                  projectTitle={project.title}
+                  productName={currentProduct?.name ?? "Produit personnalisé"}
+                  variantLabel={
+                    currentProduct?.variants.find((v) => v.id === selectedVariantId)?.label ?? 
+                    selectedVariantId
+                  }
+                  imageUrl={previewImages[0]?.url ?? asset?.url ?? project.signedInputImageUrl ?? project.inputImageUrl}
+                  price={currentProduct?.variants.find((v) => v.id === selectedVariantId)?.price ?? 19.90}
+                  shipping={currentProduct?.variants.find((v) => v.id === selectedVariantId)?.shipping ?? 4.95}
+                  currency={currentProduct?.variants.find((v) => v.id === selectedVariantId)?.currency ?? "EUR"}
+                  productData={{
+                    provider: currentProduct?.provider,
+                    variantId: selectedVariantId,
+                    quantity: 1,
+                  }}
+                />
+              )
             ) : (
               <Card className="border-slate-800 bg-slate-900/70 shadow-xl">
                 <CardHeader>

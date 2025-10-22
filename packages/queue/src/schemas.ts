@@ -68,8 +68,10 @@ export const fulfillmentJobSchema = z.object({
     }),
     items: z.array(
       z.object({
+        productId: z.string().optional(),
         variantId: z.string(),
         quantity: z.number().int().positive(),
+        productOptions: z.record(z.string(), z.string()).optional(),
       }),
     ),
   }),

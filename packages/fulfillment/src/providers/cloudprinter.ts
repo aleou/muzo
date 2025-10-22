@@ -41,23 +41,50 @@ export function createCloudPrinterProvider(): FulfillmentProvider {
       );
 
       // Map items to CloudPrinter format (very specific schema)
-      // Puzzle products require BOTH 'product' and 'box' files
-      const items = order.items.map((item, index) => ({
-        reference: `${order.orderId}-item-${index + 1}`, // Unique reference for this item
-        product: item.variantId, // CloudPrinter product reference
-        shipping_level: 'cp_ground', // Required! Ground shipping (3-10 days)
-        title: 'Puzzle Photo MUZO', // Item title
-        count: String(item.quantity), // Must be string!
-        options: [
-          { type: 'puzzle_box_printed_373x273x56_mm', count: String(item.quantity) },
-          { type: 'puzzle_cardboard', count: String(item.quantity) },
-        ],
-        files: [
-          // Same image for both product and box
-          ...filesWithMD5.map(f => ({ ...f, type: 'product' as const })),
-          ...filesWithMD5.map(f => ({ ...f, type: 'box' as const })),
-        ],
-      }));
+      // Each item needs the base product ID + the option references
+      const items = order.items.map((item, index) => {
+        // Use productId if available, otherwise try to extract from variantId (legacy)
+        const productId = item.productId || (
+          item.variantId.includes('|') 
+            ? item.variantId.split('|')[0].split(':')[1] || item.variantId
+            : item.variantId
+        );
+        
+        logger.info({ 
+          itemIndex: index,
+          productId,
+          variantId: item.variantId,
+          productOptions: item.productOptions 
+        }, 'Mapping item to CloudPrinter format');
+        
+        // Build options array from productOptions if available
+        const optionsArray = item.productOptions
+          ? Object.values(item.productOptions).map((optionRef: any) => ({
+              type: optionRef as string,
+              count: String(item.quantity),
+            }))
+          : [];
+
+        logger.info({ 
+          itemIndex: index,
+          productId,
+          optionsCount: optionsArray.length,
+          options: optionsArray 
+        }, 'Built options array for CloudPrinter');
+
+        return {
+          reference: `${order.orderId}-item-${index + 1}`, // Unique reference for this item
+          product: productId, // CloudPrinter product reference
+          shipping_level: 'cp_ground', // Required! Ground shipping (3-10 days)
+          title: 'Photo MUZO', // Item title
+          count: String(item.quantity), // Must be string!
+          options: optionsArray,
+          files: [
+            // Map all files with their types
+            ...filesWithMD5.map(f => ({ ...f })),
+          ],
+        };
+      });
 
       // Create order with CloudPrinter API
       const orderPayload = {

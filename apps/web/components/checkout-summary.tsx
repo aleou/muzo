@@ -17,7 +17,9 @@ type CheckoutSummaryProps = {
   currency: string;
   productData?: {
     provider?: string;
+    productId?: string;
     variantId?: string;
+    productOptions?: Record<string, string>;
     quantity?: number;
   };
   disabled?: boolean;
@@ -54,8 +56,15 @@ export function CheckoutSummary({
       {/* Left: Order Summary */}
       <Card className="border-slate-800 bg-slate-900/70 shadow-xl">
         <CardHeader>
-          <CardTitle>Récapitulatif de votre commande</CardTitle>
-          <CardDescription>Vérifiez les détails avant de procéder au paiement</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Récapitulatif de votre commande</CardTitle>
+              <CardDescription>Vérifiez les détails avant de procéder au paiement</CardDescription>
+            </div>
+            <div className="rounded-full border border-violet-500/30 bg-violet-500/10 px-4 py-2">
+              <p className="text-xs text-violet-300 font-medium">Prix en temps réel</p>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Product Preview */}
@@ -85,11 +94,14 @@ export function CheckoutSummary({
               <div className="pt-2 space-y-2 text-sm">
                 <div className="flex items-center gap-2 text-slate-400">
                   <Package className="h-4 w-4" />
-                  <span>Production sur-mesure</span>
+                  <span>Production professionnelle sur-mesure</span>
                 </div>
                 <div className="flex items-center gap-2 text-slate-400">
                   <Truck className="h-4 w-4" />
-                  <span>Livraison standard (5-7 jours ouvrés)</span>
+                  <div className="flex-1">
+                    <p>Livraison standard</p>
+                    <p className="text-xs text-slate-500">Délai estimé : 5-7 jours ouvrés</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -97,17 +109,45 @@ export function CheckoutSummary({
 
           {/* Price Breakdown */}
           <div className="border-t border-slate-800 pt-4 space-y-3">
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-400">Prix du produit</span>
-              <span className="text-slate-100 font-medium">{formatPrice(price, currency)}</span>
+            <div className="mb-2">
+              <h4 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
+                Détail du prix
+              </h4>
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-400">Frais de livraison</span>
-              <span className="text-slate-100 font-medium">{formatPrice(shipping, currency)}</span>
+            
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <Package className="h-4 w-4 text-slate-500" />
+                  <span className="text-slate-400">Prix du produit</span>
+                </div>
+                <span className="text-slate-100 font-medium">{formatPrice(price, currency)}</span>
+              </div>
+              
+              <div className="flex justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <Truck className="h-4 w-4 text-slate-500" />
+                  <span className="text-slate-400">Livraison standard</span>
+                </div>
+                <span className="text-slate-100 font-medium">{formatPrice(shipping, currency)}</span>
+              </div>
+              
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
+                <p className="text-xs text-emerald-300 flex items-center gap-2">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Production et livraison incluses dans le prix
+                </p>
+              </div>
             </div>
-            <div className="border-t border-slate-800 pt-3 flex justify-between">
-              <span className="text-base font-semibold text-slate-100">Total</span>
-              <span className="text-xl font-bold text-emerald-300">{formatPrice(total, currency)}</span>
+            
+            <div className="border-t border-slate-700 pt-3 flex justify-between items-center">
+              <span className="text-base font-semibold text-slate-100">Total TTC</span>
+              <div className="text-right">
+                <span className="text-2xl font-bold text-emerald-300">{formatPrice(total, currency)}</span>
+                <p className="text-xs text-slate-500 mt-1">TVA incluse</p>
+              </div>
             </div>
           </div>
 

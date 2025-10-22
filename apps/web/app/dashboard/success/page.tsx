@@ -62,6 +62,8 @@ async function SuccessContent({ searchParams }: Props) {
       const fulfillmentPayload = await prepareFulfillmentJobPayload(order.id);
       
       if (fulfillmentPayload) {
+        console.log('[success] About to enqueue job with payload:', JSON.stringify(fulfillmentPayload, null, 2));
+        
         await enqueueJob({
           type: "FULFILLMENT",
           payload: fulfillmentPayload,
